@@ -1,0 +1,65 @@
+name: comthino
+
+services:
+  backend:
+    container_name: comthino-backend
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      FRONTEND_URL: https://comthino.com
+      PUBLIC_API_URL: https://comthino.com/api
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - comthino_uploads:/app/uploads
+    expose:
+      - "5000"
+    networks:
+      - comthino
+
+  frontend:
+    container_name: comthino-frontend
+    build:
+      context: https://github.com/khaccao/comthino-frontend.git#main
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    volumes:
+      - comthino_uploads:/usr/share/nginx/html/uploads:ro
+    expose:
+      - "80"
+    networks:
+      - comthino
+      - aciplatform_proxy
+
+  setup-db:
+    profiles:
+      - setup
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+    command: sh -c "npx prisma db push && npm run prisma:seed"
+    networks:
+      - comthino
+
+networks:
+  comthino:
+    name: comthino-network
+  aciplatform_proxy:
+    external: true
+    name: aciplatform_aciplatform-network
+
+volumes:
+  comthino_uploads:
+    name: comthino_uploads
