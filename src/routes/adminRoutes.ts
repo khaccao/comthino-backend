@@ -44,6 +44,20 @@ import {
   uploadMedia,
   deleteMedia,
 } from '../controllers/adminController';
+import {
+  getBlogCategories,
+  createBlogCategory,
+  updateBlogCategory,
+  deleteBlogCategory,
+  getBlogPosts,
+  getBlogPost,
+  createBlogPost,
+  updateBlogPost,
+  deleteBlogPost,
+  publishBlogPost,
+  unpublishBlogPost,
+  previewBlogSlug,
+} from '../controllers/blogAdminController';
 
 const router = Router();
 
@@ -120,5 +134,20 @@ router.delete('/media/:id', deleteMedia);
 
 // Standalone Upload Endpoint
 router.post('/upload/image', upload.single('image'), uploadMedia);
+
+// Blog / News
+router.get('/blog/slug-preview', previewBlogSlug);
+router.get('/blog/categories', getBlogCategories);
+router.post('/blog/categories', createBlogCategory);
+router.put('/blog/categories/:id', updateBlogCategory);
+router.delete('/blog/categories/:id', deleteBlogCategory);
+
+router.get('/blog/posts', getBlogPosts);
+router.get('/blog/posts/:id', getBlogPost);
+router.post('/blog/posts', createBlogPost);
+router.put('/blog/posts/:id', updateBlogPost);
+router.delete('/blog/posts/:id', deleteBlogPost);
+router.post('/blog/posts/:id/publish', publishBlogPost);
+router.post('/blog/posts/:id/unpublish', unpublishBlogPost);
 
 export default router;

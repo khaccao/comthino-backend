@@ -266,6 +266,136 @@ async function main() {
     console.log('- Created GalleryImages');
   }
 
+  // 10. Seed Blog Categories and Posts
+  const blogCategoryCount = await prisma.blogCategory.count();
+  if (blogCategoryCount === 0) {
+    const categories = await Promise.all([
+      prisma.blogCategory.create({ data: { name: 'Thuc don hom nay', slug: 'thuc-don-hom-nay', description: 'Cap nhat thuc don com van phong va mon ngon trong ngay.', displayOrder: 1, isActive: true } }),
+      prisma.blogCategory.create({ data: { name: 'Mon ngon Bac Bo', slug: 'mon-ngon-bac-bo', description: 'Cau chuyen ve huong vi com que Bac Bo.', displayOrder: 2, isActive: true } }),
+      prisma.blogCategory.create({ data: { name: 'Com van phong', slug: 'com-van-phong', description: 'Kinh nghiem dat com trua van phong ngon, sach, dung gio.', displayOrder: 3, isActive: true } }),
+      prisma.blogCategory.create({ data: { name: 'Uu dai', slug: 'uu-dai', description: 'Thong tin uu dai va combo moi tu Com Thi No.', displayOrder: 4, isActive: true } }),
+      prisma.blogCategory.create({ data: { name: 'Tin quan', slug: 'tin-quan', description: 'Tin khai truong, hoat dong va cap nhat tu quan.', displayOrder: 5, isActive: true } }),
+    ]);
+
+    const [todayMenu, northernFood, officeRice, promotion, restaurantNews] = categories;
+    const now = new Date();
+    const blogImage = 'https://images.unsplash.com/photo-1606787366850-de6330128bfc?q=80&w=1000&auto=format&fit=crop';
+
+    await prisma.blogPost.createMany({
+      data: [
+        {
+          categoryId: restaurantNews.id,
+          title: 'Com Thi No khai truong tai KDT Van Quan, Ha Dong',
+          slug: 'com-thi-no-khai-truong-tai-kdt-van-quan-ha-dong',
+          excerpt: 'Com Thi No don khach tai Van Quan voi mam com que Bac Bo, khong gian am cung va dich vu dat com doan.',
+          content: '<h2>Com que Bac Bo giua Van Quan</h2><p>Com Thi No mang den nhung mam com than quen voi ca kho, canh cua, dua muoi va cac mon kho dam vi gia dinh.</p><h3>Phuc vu tai quan va dat com doan</h3><p>Khach co the den an truc tiep hoac lien he dat com van phong, com cong ty khu vuc Ha Dong.</p>',
+          thumbnailUrl: blogImage,
+          coverImageUrl: blogImage,
+          authorName: 'Com Thi No',
+          status: 'PUBLISHED',
+          publishedAt: now,
+          readingTime: 1,
+          tags: 'khai truong, van quan, ha dong',
+          seoTitle: 'Com Thi No khai truong tai Van Quan Ha Dong',
+          seoDescription: 'Com Thi No khai truong tai KDT Van Quan, Ha Dong voi mam com que Bac Bo, com van phong va dat com doan.',
+          seoKeywords: 'com thi no, com van quan, com ha dong',
+          ogTitle: 'Com Thi No khai truong tai KDT Van Quan',
+          ogDescription: 'Dia chi com que Bac Bo moi tai Van Quan, Ha Dong.',
+          ogImageUrl: blogImage,
+          schemaType: 'BlogPosting',
+          isFeatured: true,
+          displayOrder: 1,
+        },
+        {
+          categoryId: officeRice.id,
+          title: 'Goi y bua trua van phong ngon mieng tai Ha Dong',
+          slug: 'goi-y-bua-trua-van-phong-ngon-mieng-tai-ha-dong',
+          excerpt: 'Cach chon bua trua van phong vua ngon, du chat, giao dung gio cho nhan su khu vuc Ha Dong.',
+          content: '<h2>Bua trua can du vi va du chat</h2><p>Mot suat com van phong tot nen co mon man, rau, canh va phan com nong vua du.</p><h3>Dat truoc de giao dung gio</h3><p>Voi nhom dong nguoi, dat truoc giup bep chuan bi tot hon va giao dung khung gio nghi trua.</p>',
+          thumbnailUrl: blogImage,
+          coverImageUrl: blogImage,
+          authorName: 'Com Thi No',
+          status: 'PUBLISHED',
+          publishedAt: now,
+          readingTime: 1,
+          tags: 'com van phong, ha dong, bua trua',
+          seoTitle: 'Goi y bua trua van phong ngon tai Ha Dong',
+          seoDescription: 'Goi y cach dat com van phong Ha Dong ngon, sach, giao nhanh va phu hop nhom nhan su.',
+          seoKeywords: 'com van phong ha dong, bua trua van phong',
+          ogImageUrl: blogImage,
+          schemaType: 'BlogPosting',
+          isFeatured: true,
+          displayOrder: 2,
+        },
+        {
+          categoryId: northernFood.id,
+          title: 'Vi sao com que Bac Bo luon duoc yeu thich',
+          slug: 'vi-sao-com-que-bac-bo-luon-duoc-yeu-thich',
+          excerpt: 'Com que Bac Bo hap dan boi vi dam da, gan gui va goi nho nhung bua com gia dinh.',
+          content: '<h2>Huong vi gan voi ky uc</h2><p>Ca kho, thit rang, canh cua va ca muoi la nhung mon an moc mac nhung rat de nho.</p><blockquote>Mot bua com ngon la bua com lam nguoi an thay am long.</blockquote><h3>Nguyen lieu quen thuoc</h3><p>Su hap dan den tu cach nem nep, su can bang va cach nau cham rai.</p>',
+          thumbnailUrl: blogImage,
+          coverImageUrl: blogImage,
+          authorName: 'Com Thi No',
+          status: 'PUBLISHED',
+          publishedAt: now,
+          readingTime: 1,
+          tags: 'mon ngon bac bo, com que',
+          seoTitle: 'Vi sao com que Bac Bo luon duoc yeu thich',
+          seoDescription: 'Tim hieu vi sao com que Bac Bo voi ca kho, canh cua, dua muoi luon duoc thuc khach yeu thich.',
+          seoKeywords: 'com que bac bo, mon ngon bac bo',
+          ogImageUrl: blogImage,
+          schemaType: 'BlogPosting',
+          isFeatured: true,
+          displayOrder: 3,
+        },
+        {
+          categoryId: todayMenu.id,
+          title: 'Thuc don com van phong thay doi moi ngay tai Com Thi No',
+          slug: 'thuc-don-com-van-phong-thay-doi-moi-ngay-tai-com-thi-no',
+          excerpt: 'Thuc don linh hoat moi ngay giup bua trua khong lap lai va phu hop khau vi nhieu nhom khach.',
+          content: '<h2>Moi ngay mot lua chon moi</h2><p>Bep Com Thi No uu tien cac mon de an, du chat va phu hop nhieu lua tuoi.</p><h3>Co the dat theo nhom</h3><p>Doanh nghiep co the lien he de nhan tu van thuc don theo ngan sach va so luong.</p>',
+          thumbnailUrl: blogImage,
+          coverImageUrl: blogImage,
+          authorName: 'Com Thi No',
+          status: 'PUBLISHED',
+          publishedAt: now,
+          readingTime: 1,
+          tags: 'thuc don hom nay, com van phong',
+          seoTitle: 'Thuc don com van phong moi ngay tai Com Thi No',
+          seoDescription: 'Cap nhat thuc don com van phong thay doi moi ngay tai Com Thi No, phu hop dat com cong ty Ha Dong.',
+          seoKeywords: 'thuc don com van phong, com thi no',
+          ogImageUrl: blogImage,
+          schemaType: 'BlogPosting',
+          isFeatured: false,
+          displayOrder: 4,
+        },
+        {
+          categoryId: promotion.id,
+          title: 'Nhan dat com doan com cong ty khu vuc Van Quan Ha Dong',
+          slug: 'nhan-dat-com-doan-com-cong-ty-khu-vuc-van-quan-ha-dong',
+          excerpt: 'Com Thi No nhan dat com doan, com cong ty va suat an van phong tai Van Quan, Ha Dong.',
+          content: '<h2>Dat com doan gon gang hon</h2><p>Chi can gui so luong, thoi gian giao va ngan sach, bep se goi y thuc don phu hop.</p><h3>Phu hop su kien noi bo</h3><p>Cac buoi hop, lien hoan nho hay bua trua phong ban deu co the duoc chuan bi theo yeu cau.</p>',
+          thumbnailUrl: blogImage,
+          coverImageUrl: blogImage,
+          authorName: 'Com Thi No',
+          status: 'PUBLISHED',
+          publishedAt: now,
+          readingTime: 1,
+          tags: 'dat com doan, com cong ty, van quan',
+          seoTitle: 'Dat com doan com cong ty Van Quan Ha Dong',
+          seoDescription: 'Nhan dat com doan, com cong ty va com van phong khu vuc Van Quan Ha Dong, giao dung gio.',
+          seoKeywords: 'dat com doan van quan, com cong ty ha dong',
+          ogImageUrl: blogImage,
+          schemaType: 'BlogPosting',
+          isFeatured: false,
+          displayOrder: 5,
+        },
+      ],
+    });
+
+    console.log('- Created BlogCategories and BlogPosts');
+  }
+
   console.log('Seeding completed successfully!');
 }
 

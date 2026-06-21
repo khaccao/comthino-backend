@@ -191,3 +191,52 @@ model AuditLog {
 
   @@map("AuditLogs")
 }
+
+model BlogCategory {
+  id           String     @id @default(uuid())
+  name         String
+  slug         String     @unique
+  description  String?    @db.NVarChar(MAX)
+  displayOrder Int        @default(0)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  posts        BlogPost[]
+
+  @@map("BlogCategories")
+}
+
+model BlogPost {
+  id             String       @id @default(uuid())
+  categoryId     String
+  title          String
+  slug           String       @unique
+  excerpt        String?      @db.NVarChar(MAX)
+  content        String       @db.NVarChar(MAX)
+  thumbnailUrl   String?
+  coverImageUrl  String?
+  authorName     String?
+  status         String       @default("DRAFT")
+  publishedAt    DateTime?
+  readingTime    Int          @default(1)
+  tags           String?      @db.NVarChar(MAX)
+  seoTitle       String?
+  seoDescription String?      @db.NVarChar(MAX)
+  seoKeywords    String?      @db.NVarChar(MAX)
+  canonicalUrl   String?
+  ogTitle        String?
+  ogDescription  String?      @db.NVarChar(MAX)
+  ogImageUrl     String?
+  schemaType     String       @default("BlogPosting")
+  viewCount      Int          @default(0)
+  isFeatured     Boolean      @default(false)
+  displayOrder   Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  category       BlogCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([categoryId])
+  @@index([status])
+  @@index([publishedAt])
+  @@map("BlogPosts")
+}
