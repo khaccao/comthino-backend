@@ -1,0 +1,11 @@
+// This tsconfig is used for running ts-node scripts (like seed.ts)
+// outside of the main src/ rootDir
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["src/**/*", "prisma/**/*"]
+}

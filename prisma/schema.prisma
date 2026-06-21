@@ -1,0 +1,193 @@
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String   @id @default(uuid())
+  fullName     String
+  email        String   @unique
+  passwordHash String
+  role         String   @default("ADMIN")
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("Users")
+}
+
+model SiteSettings {
+  id             String  @id @default(uuid())
+  siteName       String
+  slogan         String?
+  primaryColor   String  @default("#4A250F")
+  secondaryColor String  @default("#C96A24")
+  accentColor    String  @default("#D99A2B")
+  phone          String?
+  email          String?
+  address        String?
+  facebookUrl    String?
+  zaloUrl        String?
+  googleMapUrl   String? @db.NVarChar(MAX)
+  openingHours   String?
+  seoTitle       String?
+  seoDescription String? @db.NVarChar(MAX)
+  seoKeywords    String? @db.NVarChar(MAX)
+  faviconUrl     String?
+  logoUrl        String?
+
+  @@map("SiteSettings")
+}
+
+model Banner {
+  id           String   @id @default(uuid())
+  title        String
+  subtitle     String?
+  description  String?  @db.NVarChar(MAX)
+  imageUrl     String
+  buttonText   String?
+  buttonLink   String?
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@map("Banners")
+}
+
+model NavigationItem {
+  id           String   @id @default(uuid())
+  label        String
+  url          String
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@map("NavigationItems")
+}
+
+model HomeSection {
+  id           String   @id @default(uuid())
+  sectionKey   String   @unique
+  title        String
+  subtitle     String?
+  description  String?  @db.NVarChar(MAX)
+  imageUrl     String?
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@map("HomeSections")
+}
+
+model MenuCategory {
+  id           String     @id @default(uuid())
+  name         String
+  description  String?    @db.NVarChar(MAX)
+  displayOrder Int        @default(0)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  menuItems    MenuItem[]
+
+  @@map("MenuCategories")
+}
+
+model MenuItem {
+  id               String       @id @default(uuid())
+  categoryId       String
+  name             String
+  slug             String       @unique
+  imageUrl         String
+  price            Decimal      @db.Decimal(18, 2)
+  salePrice        Decimal?     @db.Decimal(18, 2)
+  shortDescription String?      @db.NVarChar(MAX)
+  description      String?      @db.NVarChar(MAX)
+  ingredients      String?      @db.NVarChar(MAX)
+  isFeatured       Boolean      @default(false)
+  isAvailable      Boolean      @default(true)
+  displayOrder     Int          @default(0)
+  createdAt        DateTime     @default(now())
+  category         MenuCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@map("MenuItems")
+}
+
+model Promotion {
+  id           String    @id @default(uuid())
+  title        String
+  description  String?   @db.NVarChar(MAX)
+  imageUrl     String
+  startDate    DateTime
+  endDate      DateTime
+  discountText String?
+  buttonText   String?
+  buttonLink   String?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+
+  @@map("Promotions")
+}
+
+model GalleryImage {
+  id           String   @id @default(uuid())
+  title        String?
+  imageUrl     String
+  altText      String?
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@map("GalleryImages")
+}
+
+model Testimonial {
+  id           String   @id @default(uuid())
+  customerName String
+  content      String   @db.NVarChar(MAX)
+  rating       Int      @default(5)
+  avatarUrl    String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@map("Testimonials")
+}
+
+model ContactMessage {
+  id        String   @id @default(uuid())
+  fullName  String
+  phone     String
+  email     String?
+  message   String   @db.NVarChar(MAX)
+  status    String   @default("NEW") // NEW, CONTACTED, DONE
+  createdAt DateTime @default(now())
+
+  @@map("ContactMessages")
+}
+
+model MediaFile {
+  id           String   @id @default(uuid())
+  fileName     String
+  originalName String
+  fileUrl      String
+  mimeType     String
+  size         Int
+  createdAt    DateTime @default(now())
+
+  @@map("MediaFiles")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  oldValue  String?  @db.NVarChar(MAX)
+  newValue  String?  @db.NVarChar(MAX)
+  createdAt DateTime @default(now())
+
+  @@map("AuditLogs")
+}
