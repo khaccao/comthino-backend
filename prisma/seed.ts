@@ -270,10 +270,10 @@ async function main() {
   const blogCategoryCount = await prisma.blogCategory.count();
   if (blogCategoryCount === 0) {
     const categories = await Promise.all([
-      prisma.blogCategory.create({ data: { name: 'Thuc don hom nay', slug: 'thuc-don-hom-nay', description: 'Cap nhat thuc don com van phong va mon ngon trong ngay.', displayOrder: 1, isActive: true } }),
-      prisma.blogCategory.create({ data: { name: 'Mon ngon Bac Bo', slug: 'mon-ngon-bac-bo', description: 'Cau chuyen ve huong vi com que Bac Bo.', displayOrder: 2, isActive: true } }),
-      prisma.blogCategory.create({ data: { name: 'Com van phong', slug: 'com-van-phong', description: 'Kinh nghiem dat com trua van phong ngon, sach, dung gio.', displayOrder: 3, isActive: true } }),
-      prisma.blogCategory.create({ data: { name: 'Uu dai', slug: 'uu-dai', description: 'Thong tin uu dai va combo moi tu Com Thi No.', displayOrder: 4, isActive: true } }),
+      prisma.blogCategory.create({ data: { name: 'Thực đơn hôm nay', slug: 'thuc-don-hom-nay', description: 'Cap nhat thuc don com van phong va mon ngon trong ngay.', displayOrder: 1, isActive: true } }),
+      prisma.blogCategory.create({ data: { name: 'Món ngon Bắc Bộ', slug: 'mon-ngon-bac-bo', description: 'Cau chuyen ve huong vi com que Bac Bo.', displayOrder: 2, isActive: true } }),
+      prisma.blogCategory.create({ data: { name: 'Cơm văn phòng', slug: 'com-van-phong', description: 'Kinh nghiem dat com trua van phong ngon, sach, dung gio.', displayOrder: 3, isActive: true } }),
+      prisma.blogCategory.create({ data: { name: 'Ưu đãi', slug: 'uu-dai', description: 'Thong tin uu dai va combo moi tu Com Thi No.', displayOrder: 4, isActive: true } }),
       prisma.blogCategory.create({ data: { name: 'Tin quan', slug: 'tin-quan', description: 'Tin khai truong, hoat dong va cap nhat tu quan.', displayOrder: 5, isActive: true } }),
     ]);
 
@@ -291,7 +291,7 @@ async function main() {
           content: '<h2>Com que Bac Bo giua Van Quan</h2><p>Com Thi No mang den nhung mam com than quen voi ca kho, canh cua, dua muoi va cac mon kho dam vi gia dinh.</p><h3>Phuc vu tai quan va dat com doan</h3><p>Khach co the den an truc tiep hoac lien he dat com van phong, com cong ty khu vuc Ha Dong.</p>',
           thumbnailUrl: blogImage,
           coverImageUrl: blogImage,
-          authorName: 'Com Thi No',
+          authorName: 'Cơm Thị Nở',
           status: 'PUBLISHED',
           publishedAt: now,
           readingTime: 1,

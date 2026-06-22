@@ -41,7 +41,8 @@ const absoluteUploadPath = path.isAbsolute(uploadDir)
   ? uploadDir
   : path.join(__dirname, '../', uploadDir);
 
-app.use('/uploads', express.static(absoluteUploadPath));
+// Serve public assets (robots.txt, sitemap.xml, etc.)
+app.use(express.static(path.join(__dirname, '../public')));
 
 // API Routes
 app.use('/api/auth', authRoutes);
