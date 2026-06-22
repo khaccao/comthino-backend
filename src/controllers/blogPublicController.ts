@@ -24,7 +24,10 @@ function publishedWhere(extra: Record<string, unknown> = {}) {
 function blogOrder(sortBy: string, sortOrder: string) {
   const safeSortBy = ['publishedAt', 'createdAt', 'displayOrder'].includes(sortBy) ? sortBy : 'publishedAt';
   const safeOrder = sortOrder === 'asc' ? 'asc' : 'desc';
-  return [{ [safeSortBy]: safeOrder }, { displayOrder: 'asc' }, { createdAt: 'desc' }] as any;
+  const order: any[] = [{ [safeSortBy]: safeOrder }];
+  if (safeSortBy !== 'displayOrder') order.push({ displayOrder: 'asc' });
+  if (safeSortBy !== 'createdAt') order.push({ createdAt: 'desc' });
+  return order;
 }
 
 export const getPublicBlogCategories = async (_req: Request, res: Response) => {

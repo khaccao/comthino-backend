@@ -13,6 +13,9 @@ dotenv.config();
 
 const app = express();
 
+// The app is served behind nginx in Docker, so forwarded headers are expected.
+app.set('trust proxy', 1);
+
 // Security Middlewares
 app.use(
   helmet({

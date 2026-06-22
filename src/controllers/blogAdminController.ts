@@ -84,6 +84,12 @@ function buildPostData(input: z.infer<typeof postSchema>, slug: string) {
   };
 }
 
+function uniquePostOrder(sortBy: string, sortOrder: 'asc' | 'desc') {
+  const order: any[] = [{ [sortBy]: sortOrder }];
+  if (sortBy !== 'createdAt') order.push({ createdAt: 'desc' });
+  return order;
+}
+
 export const getBlogCategories = async (_req: AuthenticatedRequest, res: Response) => {
   try {
     const categories = await prisma.blogCategory.findMany({
@@ -184,7 +190,7 @@ export const getBlogPosts = async (req: AuthenticatedRequest, res: Response) => 
       prisma.blogPost.findMany({
         where,
         include: { category: true },
-        orderBy: [{ [sortBy]: sortOrder }, { createdAt: 'desc' }],
+        orderBy: uniquePostOrder(sortBy, sortOrder),
         skip: (page - 1) * limit,
         take: limit,
       }),

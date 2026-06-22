@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../config/prisma';
 import { z } from 'zod';
+import { sendContactNotification } from '../utils/mailer';
 
 export const getSiteSettings = async (req: Request, res: Response) => {
   try {
@@ -154,6 +155,16 @@ export const postContact = async (req: Request, res: Response) => {
         message,
         status: 'NEW',
       },
+    });
+
+    sendContactNotification({
+      fullName: contact.fullName,
+      phone: contact.phone,
+      email: contact.email,
+      message: contact.message,
+      createdAt: contact.createdAt,
+    }).catch((error) => {
+      console.error('Failed to send contact notification email:', error);
     });
 
     res.status(201).json({
