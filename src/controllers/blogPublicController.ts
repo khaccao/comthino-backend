@@ -233,9 +233,37 @@ export const getSitemapXml = async (_req: Request, res: Response) => {
   }
 };
 
-export const getRobotsTxt = (_req: Request, res: Response) => {
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-  res.send(`User-agent: *\nAllow: /\nAllow: /tin-tuc\nSitemap: ${SITE_URL}/sitemap.xml\n`);
+export const getRobotsTxt = async (_req: Request, res: Response) => {
+  try {
+    const seoPages = await prisma.seoPage.findMany({
+      where: { isPublished: true },
+      select: { slug: true },
+      orderBy: { displayOrder: 'asc' },
+    });
+
+    const landingPageRules = seoPages.map((p) => `Allow: /${p.slug}`);
+
+    const content = [
+      'User-agent: *',
+      'Allow: /',
+      'Allow: /tin-tuc',
+      'Allow: /tin-tuc/',
+      ...landingPageRules,
+      'Disallow: /admin',
+      'Disallow: /api',
+      '',
+      `Sitemap: ${SITE_URL}/sitemap.xml`,
+      '',
+    ].join('\n');
+
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600'); // cache 1h
+    res.send(content);
+  } catch (error) {
+    // Fallback nếu DB lỗi
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.send(`User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api\nSitemap: ${SITE_URL}/sitemap.xml\n`);
+  }
 };
 
 export function buildBlogJsonLd(post: any) {
