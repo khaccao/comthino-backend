@@ -180,7 +180,7 @@ export const getPublicBlogPostsByCategory = async (req: Request, res: Response) 
 
 export const getSitemapXml = async (_req: Request, res: Response) => {
   try {
-    const [posts, categories] = await Promise.all([
+    const [posts, categories, seoPages] = await Promise.all([
       prisma.blogPost.findMany({
         where: publishedWhere(),
         select: { slug: true, updatedAt: true, publishedAt: true },
@@ -191,6 +191,11 @@ export const getSitemapXml = async (_req: Request, res: Response) => {
         select: { slug: true, updatedAt: true },
         orderBy: [{ displayOrder: 'asc' }],
       }),
+      prisma.seoPage.findMany({
+        where: { isPublished: true },
+        select: { slug: true, updatedAt: true },
+        orderBy: [{ createdAt: 'desc' }],
+      }),
     ]);
 
     const staticUrls = ['/', '/tin-tuc'];
@@ -199,6 +204,11 @@ export const getSitemapXml = async (_req: Request, res: Response) => {
         loc: `${SITE_URL}${path}`,
         lastmod: new Date(),
         priority: path === '/' ? '1.0' : '0.8',
+      })),
+      ...seoPages.map((page) => ({
+        loc: `${SITE_URL}/${page.slug}`,
+        lastmod: page.updatedAt,
+        priority: '0.9', // Landing pages should have high priority
       })),
       ...categories.map((category) => ({
         loc: `${SITE_URL}/tin-tuc/danh-muc/${category.slug}`,

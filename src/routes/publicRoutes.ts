@@ -21,6 +21,12 @@ import {
   getRobotsTxt,
   getSitemapXml,
 } from '../controllers/blogPublicController';
+import {
+  getPublicSeoPages,
+  getPublicSeoPageBySlug,
+  getPublicFAQs,
+  getPublicReviews,
+} from '../controllers/seoPublicController';
 
 const router = Router();
 
@@ -41,6 +47,12 @@ router.get('/blog/posts', getPublicBlogPosts);
 router.get('/blog/posts/featured', getFeaturedBlogPosts);
 router.get('/blog/posts/category/:slug', getPublicBlogPostsByCategory);
 router.get('/blog/posts/:slug', getPublicBlogPostBySlug);
+
+router.get('/seo-pages', getPublicSeoPages);
+router.get('/seo-pages/:slug', getPublicSeoPageBySlug);
+router.get('/faqs', getPublicFAQs);
+router.get('/reviews', getPublicReviews);
+
 router.get('/sitemap.xml', getSitemapXml);
 router.get('/robots.txt', getRobotsTxt);
 

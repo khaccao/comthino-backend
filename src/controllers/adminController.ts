@@ -2,8 +2,6 @@ import { Response } from 'express';
 import prisma from '../config/prisma';
 import { AuthenticatedRequest } from '../middlewares/auth';
 import { logAudit } from '../utils/auditLogger';
-import path from 'path';
-import fs from 'fs';
 
 // --- Dashboard ---
 export const getDashboard = async (req: AuthenticatedRequest, res: Response) => {
@@ -776,23 +774,23 @@ export const getMediaFiles = async (req: AuthenticatedRequest, res: Response) =>
   }
 };
 
+import { v2 as cloudinary } from 'cloudinary';
+
 export const uploadMedia = async (req: AuthenticatedRequest, res: Response) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'Không tìm thấy file tải lên.' });
     }
 
-    const { filename, originalname, mimetype, size } = req.file;
-    // Serve static files via url. Since our Nginx proxy serves static uploads on /uploads
-    const fileUrl = `/uploads/${filename}`;
+    const { filename, originalname, mimetype, size, path: fileUrl } = req.file;
 
     const media = await prisma.mediaFile.create({
       data: {
         fileName: filename,
         originalName: originalname,
-        fileUrl,
+        fileUrl, // URL from Cloudinary
         mimeType: mimetype,
-        size,
+        size: size || 0,
       },
     });
 
@@ -815,6 +813,36 @@ export const uploadMedia = async (req: AuthenticatedRequest, res: Response) => {
   }
 };
 
+export const updateMedia = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { altText, title, caption } = req.body;
+
+    const oldVal = await prisma.mediaFile.findUnique({ where: { id } });
+    if (!oldVal) {
+      return res.status(404).json({ success: false, message: 'File không tồn tại.' });
+    }
+
+    const media = await prisma.mediaFile.update({
+      where: { id },
+      data: { altText, title, caption },
+    });
+
+    await logAudit({
+      userId: req.user?.id,
+      action: 'UPDATE_MEDIA',
+      entity: 'MediaFile',
+      entityId: media.id,
+      oldValue: oldVal,
+      newValue: media,
+    });
+
+    res.json({ success: true, message: 'Cập nhật media thành công.', data: media });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Lỗi cập nhật media.' });
+  }
+};
+
 export const deleteMedia = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
@@ -824,14 +852,11 @@ export const deleteMedia = async (req: AuthenticatedRequest, res: Response) => {
       return res.status(404).json({ success: false, message: 'File không tồn tại trên hệ thống.' });
     }
 
-    // Try deleting file from disk
-    const uploadDir = process.env.UPLOAD_DIR || 'uploads';
-    const filePath = path.isAbsolute(uploadDir)
-      ? path.join(uploadDir, media.fileName)
-      : path.join(__dirname, '../../', uploadDir, media.fileName);
-
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+    // Delete from Cloudinary
+    try {
+      await cloudinary.uploader.destroy(media.fileName);
+    } catch (e) {
+      console.warn('Failed to delete from Cloudinary:', e);
     }
 
     await prisma.mediaFile.delete({ where: { id } });
@@ -849,3 +874,4 @@ export const deleteMedia = async (req: AuthenticatedRequest, res: Response) => {
     res.status(500).json({ success: false, message: 'Lỗi xóa tệp media.' });
   }
 };
+

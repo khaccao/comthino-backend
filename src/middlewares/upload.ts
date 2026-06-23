@@ -1,33 +1,30 @@
 import multer from 'multer';
-import path from 'path';
-import fs from 'fs';
+import { v2 as cloudinary } from 'cloudinary';
+import { CloudinaryStorage } from 'multer-storage-cloudinary';
 
-const uploadDir = process.env.UPLOAD_DIR || 'uploads';
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'dcgloyqur',
+  api_key: process.env.CLOUDINARY_API_KEY || '246829161891641',
+  api_secret: process.env.CLOUDINARY_API_SECRET || 'mGCMlPUh_lVDa3cu5_PrNJjMGac',
+});
 
-// Ensure upload directory exists
-const absoluteUploadPath = path.isAbsolute(uploadDir)
-  ? uploadDir
-  : path.join(__dirname, '../../', uploadDir);
+// If CLOUDINARY_URL is available, it will automatically use it, but explicit config above helps fallback.
 
-if (!fs.existsSync(absoluteUploadPath)) {
-  fs.mkdirSync(absoluteUploadPath, { recursive: true });
-}
-
-// Storage Configuration
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, absoluteUploadPath);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    const ext = path.extname(file.originalname);
-    cb(null, file.fieldname + '-' + uniqueSuffix + ext);
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: async (req, file) => {
+    return {
+      folder: 'comthino_uploads',
+      format: 'auto', // supports promises as well
+      public_id: file.fieldname + '-' + Date.now(),
+    };
   },
 });
 
-// File Filter - Compatible with multer v2.x
+// File Filter
 const fileFilter: multer.Options['fileFilter'] = (req, file, cb) => {
-  const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+  const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg'];
   if (allowedMimeTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {

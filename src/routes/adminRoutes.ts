@@ -42,6 +42,7 @@ import {
   deleteContact,
   getMediaFiles,
   uploadMedia,
+  updateMedia,
   deleteMedia,
 } from '../controllers/adminController';
 import {
@@ -58,6 +59,21 @@ import {
   unpublishBlogPost,
   previewBlogSlug,
 } from '../controllers/blogAdminController';
+import {
+  getSeoPages,
+  getSeoPage,
+  createSeoPage,
+  updateSeoPage,
+  deleteSeoPage,
+  getFAQs,
+  createFAQ,
+  updateFAQ,
+  deleteFAQ,
+  getReviews,
+  createReview,
+  updateReview,
+  deleteReview,
+} from '../controllers/seoAdminController';
 
 const router = Router();
 
@@ -130,6 +146,7 @@ router.delete('/contact-messages/:id', deleteContact);
 // Media Manager
 router.get('/media', getMediaFiles);
 router.post('/media', upload.single('image'), uploadMedia);
+router.put('/media/:id', updateMedia);
 router.delete('/media/:id', deleteMedia);
 
 // Standalone Upload Endpoint
@@ -149,5 +166,25 @@ router.put('/blog/posts/:id', updateBlogPost);
 router.delete('/blog/posts/:id', deleteBlogPost);
 router.post('/blog/posts/:id/publish', publishBlogPost);
 router.post('/blog/posts/:id/unpublish', unpublishBlogPost);
+
+// SEO Manager
+// Seo Pages
+router.get('/seo-pages', getSeoPages);
+router.get('/seo-pages/:id', getSeoPage);
+router.post('/seo-pages', createSeoPage);
+router.put('/seo-pages/:id', updateSeoPage);
+router.delete('/seo-pages/:id', deleteSeoPage);
+
+// FAQs
+router.get('/faqs', getFAQs);
+router.post('/faqs', createFAQ);
+router.put('/faqs/:id', updateFAQ);
+router.delete('/faqs/:id', deleteFAQ);
+
+// Reviews
+router.get('/reviews', getReviews);
+router.post('/reviews', createReview);
+router.put('/reviews/:id', updateReview);
+router.delete('/reviews/:id', deleteReview);
 
 export default router;

@@ -20,6 +20,7 @@ services:
       SMTP_SECURE: "true"
       SMTP_USER: nguyenkhaccao1@gmail.com
       SMTP_PASS: awfz twlb srhy apnf
+      CLOUDINARY_URL: cloudinary://246829161891641:mGCMlPUh_lVDa3cu5_PrNJjMGac@dcgloyqur
     volumes:
       - comthino_uploads:/app/uploads
     expose:
