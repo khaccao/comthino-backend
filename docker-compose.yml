@@ -15,6 +15,11 @@ services:
       FRONTEND_URL: https://comthino.com
       PUBLIC_API_URL: https://comthino.com/api
       UPLOAD_DIR: /app/uploads
+      SMTP_HOST: smtp.gmail.com
+      SMTP_PORT: 465
+      SMTP_SECURE: "true"
+      SMTP_USER: nguyenkhaccao1@gmail.com
+      SMTP_PASS: awfz twlb srhy apnf
     volumes:
       - comthino_uploads:/app/uploads
     expose:
