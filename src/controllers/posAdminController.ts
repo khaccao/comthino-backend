@@ -862,8 +862,10 @@ SELECT
   'PosOrders' AS SourceTable
 FROM dbo.PosOrders o WITH (READPAST)
 LEFT JOIN dbo.PosTables t ON t.Guid = o.TableGuid
-WHERE CAST(o.CreateDate AS DATE)=@WorkDate
-ORDER BY o.CreateDate DESC
+WHERE
+  (UPPER(o.Status)='PAID' AND CAST(o.PaidAt AS DATE)=@WorkDate)
+  OR (UPPER(o.Status)<>'PAID' AND CAST(o.CreateDate AS DATE)=@WorkDate)
+ORDER BY COALESCE(o.PaidAt, o.CreateDate) DESC
 `),
     );
     res.json({ success: true, data: orders.recordset });
@@ -896,30 +898,32 @@ DECLARE @WorkDate DATE = TRY_CONVERT(DATE, @Date, 23);
 DECLARE @PrevDate DATE = DATEADD(DAY, -1, @WorkDate);
 
 SELECT
-  SUM(CASE WHEN UPPER(Status)='PAID' THEN TotalAmount ELSE 0 END) AS Revenue,
-  COUNT(CASE WHEN UPPER(Status)='PAID' THEN 1 END) AS PaidOrders,
-  COUNT(CASE WHEN UPPER(Status) NOT IN ('PAID','CANCELLED') THEN 1 END) AS OpenOrders,
-  AVG(CASE WHEN UPPER(Status)='PAID' THEN TotalAmount END) AS AverageBill,
-  SUM(CASE WHEN UPPER(Status)='PAID' THEN DiscountAmount ELSE 0 END) AS DiscountAmount,
-  (SELECT SUM(CASE WHEN UPPER(p.Status)='PAID' THEN p.TotalAmount ELSE 0 END) FROM dbo.PosOrders p WITH (READPAST) WHERE CAST(p.CreateDate AS DATE)=@PrevDate) AS PreviousRevenue,
-  (SELECT COUNT(CASE WHEN UPPER(p.Status)='PAID' THEN 1 END) FROM dbo.PosOrders p WITH (READPAST) WHERE CAST(p.CreateDate AS DATE)=@PrevDate) AS PreviousPaidOrders
+  SUM(CASE WHEN UPPER(Status)='PAID' AND CAST(PaidAt AS DATE)=@WorkDate THEN TotalAmount ELSE 0 END) AS Revenue,
+  COUNT(CASE WHEN UPPER(Status)='PAID' AND CAST(PaidAt AS DATE)=@WorkDate THEN 1 END) AS PaidOrders,
+  COUNT(CASE WHEN UPPER(Status) NOT IN ('PAID','CANCELLED') AND CAST(CreateDate AS DATE)=@WorkDate THEN 1 END) AS OpenOrders,
+  AVG(CASE WHEN UPPER(Status)='PAID' AND CAST(PaidAt AS DATE)=@WorkDate THEN TotalAmount END) AS AverageBill,
+  SUM(CASE WHEN UPPER(Status)='PAID' AND CAST(PaidAt AS DATE)=@WorkDate THEN DiscountAmount ELSE 0 END) AS DiscountAmount,
+  (SELECT SUM(CASE WHEN UPPER(p.Status)='PAID' THEN p.TotalAmount ELSE 0 END) FROM dbo.PosOrders p WITH (READPAST) WHERE CAST(p.PaidAt AS DATE)=@PrevDate) AS PreviousRevenue,
+  (SELECT COUNT(CASE WHEN UPPER(p.Status)='PAID' THEN 1 END) FROM dbo.PosOrders p WITH (READPAST) WHERE CAST(p.PaidAt AS DATE)=@PrevDate) AS PreviousPaidOrders
 FROM dbo.PosOrders WITH (READPAST)
-WHERE CAST(CreateDate AS DATE)=@WorkDate;
+WHERE CAST(CreateDate AS DATE)=@WorkDate OR CAST(PaidAt AS DATE)=@WorkDate;
 
 SELECT TOP 12 i.ItemName AS Name, SUM(i.Quantity) AS Quantity, SUM(i.LineTotal) AS Amount
 FROM dbo.PosOrderItems i WITH (READPAST)
 JOIN dbo.PosOrders o WITH (READPAST) ON o.Guid = i.OrderGuid
-WHERE UPPER(o.Status)='PAID' AND CAST(o.CreateDate AS DATE)=@WorkDate
+WHERE UPPER(o.Status)='PAID' AND CAST(o.PaidAt AS DATE)=@WorkDate
 GROUP BY i.ItemName ORDER BY Amount DESC;
 
 SELECT DATEPART(HOUR, PaidAt) AS Hour, SUM(TotalAmount) AS Revenue, COUNT(1) AS Orders
 FROM dbo.PosOrders WITH (READPAST)
-WHERE UPPER(Status)='PAID' AND CAST(CreateDate AS DATE)=@WorkDate
+WHERE UPPER(Status)='PAID' AND CAST(PaidAt AS DATE)=@WorkDate
 GROUP BY DATEPART(HOUR, PaidAt) ORDER BY Hour;
 
 SELECT UPPER(Status) AS Status, COUNT(1) AS CountOrder, SUM(TotalAmount) AS Amount
 FROM dbo.PosOrders WITH (READPAST)
-WHERE CAST(CreateDate AS DATE)=@WorkDate
+WHERE
+  (UPPER(Status)='PAID' AND CAST(PaidAt AS DATE)=@WorkDate)
+  OR (UPPER(Status)<>'PAID' AND CAST(CreateDate AS DATE)=@WorkDate)
 GROUP BY UPPER(Status);
 `));
     const recordsets = summary.recordsets as sql.IRecordSet<any>[];
