@@ -244,7 +244,7 @@ WHEN MATCHED THEN UPDATE SET
   target.Height = source.Height,
   target.Shape = source.Shape,
   target.SortOrder = source.SortOrder,
-  target.Status = CASE WHEN EXISTS (SELECT 1 FROM dbo.ComPosOrders o WHERE o.TableId = target.Id AND o.Status IN ('OPEN','ORDERED')) THEN 'OCCUPIED' ELSE source.Status END,
+  target.Status = CASE WHEN EXISTS (SELECT 1 FROM dbo.ComPosOrders o WHERE o.TableId = target.Id AND o.Status IN ('OPEN','ORDERED') AND (${activeOrderWhere})) THEN 'OCCUPIED' ELSE source.Status END,
   target.IsActive = source.IsActive,
   target.SourceGuid = source.SourceGuid,
   target.SourceTable = 'PosTables',
@@ -423,6 +423,37 @@ SELECT o.*,
   (SELECT COUNT(1) FROM dbo.ComPosOrderItems i WHERE i.OrderId = o.Id) AS ItemCount
 FROM dbo.ComPosOrders o`;
 
+const activeOrderWhere = `o.Status = 'ORDERED' OR EXISTS (SELECT 1 FROM dbo.ComPosOrderItems i WHERE i.OrderId = o.Id)`;
+
+const cleanupEmptyOpenOrders = async (pool: sql.ConnectionPool) => {
+  await withSqlRetry(() =>
+    pool.request().query(`
+DECLARE @EmptyOrders TABLE (Id NVARCHAR(64), TableId NVARCHAR(64));
+
+INSERT INTO @EmptyOrders (Id, TableId)
+SELECT o.Id, o.TableId
+FROM dbo.ComPosOrders o WITH (READPAST)
+WHERE o.Status = 'OPEN'
+  AND NOT EXISTS (SELECT 1 FROM dbo.ComPosOrderItems i WHERE i.OrderId = o.Id);
+
+DELETE i FROM dbo.ComPosOrderItems i WHERE EXISTS (SELECT 1 FROM @EmptyOrders e WHERE e.Id = i.OrderId);
+DELETE o FROM dbo.ComPosOrders o WHERE EXISTS (SELECT 1 FROM @EmptyOrders e WHERE e.Id = o.Id);
+
+UPDATE t
+SET Status = 'AVAILABLE', UpdatedAt = SYSDATETIME()
+FROM dbo.ComPosTables t
+WHERE EXISTS (SELECT 1 FROM @EmptyOrders e WHERE e.TableId = t.Id)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM dbo.ComPosOrders o
+    WHERE o.TableId = t.Id
+      AND (o.Status = 'ORDERED' OR EXISTS (SELECT 1 FROM dbo.ComPosOrderItems i WHERE i.OrderId = o.Id))
+      AND o.Status IN ('OPEN','ORDERED')
+  );
+`),
+  );
+};
+
 const getOrderById = async (orderId: string) => {
   const pool = await getCaoPool();
   const orderResult = await pool.request().input('Id', sql.NVarChar(64), orderId).query(`${orderSelect} WHERE o.Id = @Id`);
@@ -507,6 +538,24 @@ const recalculateOrder = async (orderId: string, discountAmount?: number) => {
     .query(`UPDATE dbo.ComPosOrders
       SET SubTotal = @SubTotal, DiscountAmount = @DiscountAmount, TotalAmount = @TotalAmount, UpdatedAt = SYSDATETIME()
       WHERE Id = @Id`);
+
+  await pool.request().input('Id', sql.NVarChar(64), orderId).query(`
+UPDATE t
+SET Status = CASE
+  WHEN EXISTS (
+    SELECT 1
+    FROM dbo.ComPosOrders o
+    WHERE o.TableId = t.Id
+      AND o.Status IN ('OPEN','ORDERED')
+      AND (${activeOrderWhere})
+  ) THEN 'OCCUPIED'
+  ELSE 'AVAILABLE'
+END,
+UpdatedAt = SYSDATETIME()
+FROM dbo.ComPosTables t
+JOIN dbo.ComPosOrders currentOrder ON currentOrder.TableId = t.Id
+WHERE currentOrder.Id = @Id;
+`);
 };
 
 const generateOrderNo = async () => {
@@ -524,11 +573,12 @@ export const getPosBootstrap = async (_req: AuthenticatedRequest, res: Response)
   try {
     await ensurePosSchema(true);
     const pool = await getCaoPool();
+    await cleanupEmptyOpenOrders(pool);
     const [tables, categories, items, openOrders, templates] = await Promise.all([
       pool.request().query('SELECT * FROM dbo.ComPosTables WHERE IsActive = 1 ORDER BY SortOrder, Name'),
       pool.request().query('SELECT * FROM dbo.ComPosMenuCategories WHERE IsActive = 1 ORDER BY SortOrder, Name'),
       pool.request().query('SELECT * FROM dbo.ComPosMenuItems WHERE IsActive = 1 ORDER BY SortOrder, Name'),
-      pool.request().query(`${orderSelect} WHERE o.Status IN ('OPEN', 'ORDERED') ORDER BY o.CreatedAt DESC`),
+      pool.request().query(`${orderSelect} WHERE o.Status IN ('OPEN', 'ORDERED') AND (${activeOrderWhere}) ORDER BY o.CreatedAt DESC`),
       pool.request().query('SELECT Code, Name, Content, UpdatedAt FROM dbo.ComPosPrintTemplates ORDER BY Code'),
     ]);
 
@@ -681,11 +731,12 @@ export const openPosOrder = async (req: AuthenticatedRequest, res: Response) => 
   try {
     await ensurePosSchema();
     const pool = await getCaoPool();
+    await cleanupEmptyOpenOrders(pool);
     const tableId = req.body.tableId;
     const existing = await pool
       .request()
       .input('TableId', sql.NVarChar(64), tableId)
-      .query(`${orderSelect} WHERE o.TableId = @TableId AND o.Status IN ('OPEN', 'ORDERED') ORDER BY o.CreatedAt DESC`);
+      .query(`${orderSelect} WHERE o.TableId = @TableId AND o.Status IN ('OPEN', 'ORDERED') AND (${activeOrderWhere}) ORDER BY o.CreatedAt DESC`);
     const current = row<any>(existing.recordset);
     if (current) {
       res.json({ success: true, data: await getOrderById(current.Id) });
@@ -707,8 +758,7 @@ export const openPosOrder = async (req: AuthenticatedRequest, res: Response) => 
       .input('TableId', sql.NVarChar(64), table.Id)
       .input('TableName', sql.NVarChar(120), table.Name)
       .query(`INSERT INTO dbo.ComPosOrders (Id, OrderNo, TableId, TableName)
-        VALUES (@Id, @OrderNo, @TableId, @TableName);
-        UPDATE dbo.ComPosTables SET Status = 'OCCUPIED', UpdatedAt = SYSDATETIME() WHERE Id = @TableId;`);
+        VALUES (@Id, @OrderNo, @TableId, @TableName);`);
 
     res.status(201).json({ success: true, data: await getOrderById(orderId) });
   } catch (error: any) {
@@ -739,7 +789,11 @@ export const addPosOrderItem = async (req: AuthenticatedRequest, res: Response) 
       .input('Quantity', sql.Decimal(18, 2), toNumber(req.body.quantity || 1))
       .input('Note', sql.NVarChar(sql.MAX), req.body.note || null)
       .query(`INSERT INTO dbo.ComPosOrderItems (Id, OrderId, MenuItemId, Code, Name, UnitPrice, Quantity, Note)
-        VALUES (@Id, @OrderId, @MenuItemId, @Code, @Name, @UnitPrice, @Quantity, @Note)`);
+        VALUES (@Id, @OrderId, @MenuItemId, @Code, @Name, @UnitPrice, @Quantity, @Note);
+        UPDATE t SET Status='OCCUPIED', UpdatedAt=SYSDATETIME()
+        FROM dbo.ComPosTables t
+        JOIN dbo.ComPosOrders o ON o.TableId = t.Id
+        WHERE o.Id = @OrderId;`);
     await recalculateOrder(orderId);
     res.status(201).json({ success: true, data: await getOrderById(orderId) });
   } catch (error: any) {
