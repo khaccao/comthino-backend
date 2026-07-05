@@ -11,8 +11,31 @@ const toBool = (value: unknown) => value === true || value === 'true' || value =
 const newId = () => crypto.randomUUID();
 
 const row = <T>(recordset: T[]) => recordset[0] || null;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const isDeadlock = (error: any) => error?.number === 1205 || /deadlock/i.test(error?.message || '');
 
-const ensurePosSchema = async () => {
+const withSqlRetry = async <T>(operation: () => Promise<T>, attempts = 3): Promise<T> => {
+  let lastError: any;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      lastError = error;
+      if (!isDeadlock(error) || attempt === attempts) break;
+      await sleep(180 * attempt);
+    }
+  }
+  throw lastError;
+};
+
+let schemaReadyAt = 0;
+let schemaPromise: Promise<void> | null = null;
+
+const ensurePosSchema = async (syncData = false) => {
+  if (!syncData && schemaReadyAt && Date.now() - schemaReadyAt < 5 * 60 * 1000) return;
+  if (schemaPromise) return schemaPromise;
+
+  schemaPromise = withSqlRetry(async () => {
   const pool = await getCaoPool();
 
   await pool.request().batch(`
@@ -146,8 +169,16 @@ IF COL_LENGTH('dbo.ComPosMenuItems', 'SourceGuid') IS NULL ALTER TABLE dbo.ComPo
 IF COL_LENGTH('dbo.ComPosMenuItems', 'SourceTable') IS NULL ALTER TABLE dbo.ComPosMenuItems ADD SourceTable NVARCHAR(80) NULL;
 `);
 
-  await syncHotelPosData();
+  if (syncData) {
+    await syncHotelPosData();
+  }
   await seedFallbackPosData();
+  schemaReadyAt = Date.now();
+  }).finally(() => {
+    schemaPromise = null;
+  });
+
+  return schemaPromise;
 };
 
 const defaultTemplates = [
@@ -404,6 +435,59 @@ const getOrderById = async (orderId: string) => {
   return { ...order, items: items.recordset };
 };
 
+const getSourcePosOrderById = async (orderId: string) => {
+  const pool = await getCaoPool();
+  const orderResult = await pool
+    .request()
+    .input('Id', sql.NVarChar(64), orderId)
+    .query(`
+SELECT
+  CONVERT(NVARCHAR(64), o.Guid) AS Id,
+  o.OrderNo,
+  CONVERT(NVARCHAR(64), o.TableGuid) AS TableId,
+  ISNULL(t.Name, t.Code) AS TableName,
+  UPPER(o.Status) AS Status,
+  o.Note,
+  o.SubTotal,
+  o.DiscountAmount,
+  o.ServiceCharge,
+  o.VatAmount,
+  o.TotalAmount,
+  o.PaymentQrUrl,
+  o.CreateDate AS CreatedAt,
+  o.PaidAt,
+  (SELECT COUNT(1) FROM dbo.PosOrderItems i WHERE i.OrderGuid = o.Guid) AS ItemCount,
+  'PosOrders' AS SourceTable
+FROM dbo.PosOrders o
+LEFT JOIN dbo.PosTables t ON t.Guid = o.TableGuid
+WHERE CONVERT(NVARCHAR(64), o.Guid) = @Id OR o.OrderNo = @Id
+`);
+  const order = row<any>(orderResult.recordset);
+  if (!order) return null;
+
+  const items = await pool
+    .request()
+    .input('OrderGuid', sql.UniqueIdentifier, order.Id)
+    .query(`
+SELECT
+  CONVERT(NVARCHAR(64), Guid) AS Id,
+  CONVERT(NVARCHAR(64), OrderGuid) AS OrderId,
+  CONVERT(NVARCHAR(64), MenuItemGuid) AS MenuItemId,
+  ItemCode AS Code,
+  ItemName AS Name,
+  UnitPrice,
+  Quantity,
+  Note,
+  UPPER(Status) AS Status,
+  LineTotal,
+  CreateDate AS CreatedAt
+FROM dbo.PosOrderItems
+WHERE OrderGuid = @OrderGuid
+ORDER BY CreateDate ASC
+`);
+  return { ...order, items: items.recordset };
+};
+
 const recalculateOrder = async (orderId: string, discountAmount?: number) => {
   const pool = await getCaoPool();
   const current = await pool.request().input('Id', sql.NVarChar(64), orderId).query('SELECT DiscountAmount FROM dbo.ComPosOrders WHERE Id = @Id');
@@ -438,7 +522,7 @@ const generateOrderNo = async () => {
 
 export const getPosBootstrap = async (_req: AuthenticatedRequest, res: Response) => {
   try {
-    await ensurePosSchema();
+    await ensurePosSchema(true);
     const pool = await getCaoPool();
     const [tables, categories, items, openOrders, templates] = await Promise.all([
       pool.request().query('SELECT * FROM dbo.ComPosTables WHERE IsActive = 1 ORDER BY SortOrder, Name'),
@@ -753,10 +837,35 @@ export const getPosHistory = async (req: AuthenticatedRequest, res: Response) =>
     await ensurePosSchema();
     const pool = await getCaoPool();
     const date = String(req.query.date || new Date().toISOString().slice(0, 10));
-    const orders = await pool
-      .request()
-      .input('Date', sql.Date, date)
-      .query(`${orderSelect} WHERE CAST(o.CreatedAt AS DATE)=@Date ORDER BY o.CreatedAt DESC`);
+    const orders = await withSqlRetry(() =>
+      pool
+        .request()
+        .input('Date', sql.NVarChar(10), date)
+        .query(`
+DECLARE @WorkDate DATE = TRY_CONVERT(DATE, @Date, 23);
+SELECT
+  CONVERT(NVARCHAR(64), o.Guid) AS Id,
+  o.OrderNo,
+  CONVERT(NVARCHAR(64), o.TableGuid) AS TableId,
+  ISNULL(t.Name, t.Code) AS TableName,
+  UPPER(o.Status) AS Status,
+  o.Note,
+  o.SubTotal,
+  o.DiscountAmount,
+  o.ServiceCharge,
+  o.VatAmount,
+  o.TotalAmount,
+  o.PaymentQrUrl,
+  o.CreateDate AS CreatedAt,
+  o.PaidAt,
+  (SELECT COUNT(1) FROM dbo.PosOrderItems i WHERE i.OrderGuid = o.Guid) AS ItemCount,
+  'PosOrders' AS SourceTable
+FROM dbo.PosOrders o WITH (READPAST)
+LEFT JOIN dbo.PosTables t ON t.Guid = o.TableGuid
+WHERE CAST(o.CreateDate AS DATE)=@WorkDate
+ORDER BY o.CreateDate DESC
+`),
+    );
     res.json({ success: true, data: orders.recordset });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message || 'Không tải được lịch sử POS.' });
@@ -766,7 +875,7 @@ export const getPosHistory = async (req: AuthenticatedRequest, res: Response) =>
 export const getPosOrderDetail = async (req: AuthenticatedRequest, res: Response) => {
   try {
     await ensurePosSchema();
-    const order = await getOrderById(req.params.id);
+    const order = (await getSourcePosOrderById(req.params.id)) || (await getOrderById(req.params.id));
     if (!order) {
       res.status(404).json({ success: false, message: 'Không tìm thấy order.' });
       return;
@@ -782,25 +891,37 @@ export const getPosDashboard = async (req: AuthenticatedRequest, res: Response) 
     await ensurePosSchema();
     const pool = await getCaoPool();
     const date = String(req.query.date || new Date().toISOString().slice(0, 10));
-    const summary = await pool.request().input('Date', sql.Date, date).query(`
-SELECT
-  SUM(CASE WHEN Status='PAID' THEN TotalAmount ELSE 0 END) AS Revenue,
-  COUNT(CASE WHEN Status='PAID' THEN 1 END) AS PaidOrders,
-  COUNT(CASE WHEN Status IN ('OPEN','ORDERED') THEN 1 END) AS OpenOrders,
-  AVG(CASE WHEN Status='PAID' THEN TotalAmount END) AS AverageBill
-FROM dbo.ComPosOrders WHERE CAST(CreatedAt AS DATE)=@Date;
+    const summary = await withSqlRetry(() => pool.request().input('Date', sql.NVarChar(10), date).query(`
+DECLARE @WorkDate DATE = TRY_CONVERT(DATE, @Date, 23);
+DECLARE @PrevDate DATE = DATEADD(DAY, -1, @WorkDate);
 
-SELECT TOP 8 i.Name, SUM(i.Quantity) AS Quantity, SUM(i.Quantity * i.UnitPrice) AS Amount
-FROM dbo.ComPosOrderItems i
-JOIN dbo.ComPosOrders o ON o.Id = i.OrderId
-WHERE o.Status='PAID' AND CAST(o.CreatedAt AS DATE)=@Date
-GROUP BY i.Name ORDER BY Amount DESC;
+SELECT
+  SUM(CASE WHEN UPPER(Status)='PAID' THEN TotalAmount ELSE 0 END) AS Revenue,
+  COUNT(CASE WHEN UPPER(Status)='PAID' THEN 1 END) AS PaidOrders,
+  COUNT(CASE WHEN UPPER(Status) NOT IN ('PAID','CANCELLED') THEN 1 END) AS OpenOrders,
+  AVG(CASE WHEN UPPER(Status)='PAID' THEN TotalAmount END) AS AverageBill,
+  SUM(CASE WHEN UPPER(Status)='PAID' THEN DiscountAmount ELSE 0 END) AS DiscountAmount,
+  (SELECT SUM(CASE WHEN UPPER(p.Status)='PAID' THEN p.TotalAmount ELSE 0 END) FROM dbo.PosOrders p WITH (READPAST) WHERE CAST(p.CreateDate AS DATE)=@PrevDate) AS PreviousRevenue,
+  (SELECT COUNT(CASE WHEN UPPER(p.Status)='PAID' THEN 1 END) FROM dbo.PosOrders p WITH (READPAST) WHERE CAST(p.CreateDate AS DATE)=@PrevDate) AS PreviousPaidOrders
+FROM dbo.PosOrders WITH (READPAST)
+WHERE CAST(CreateDate AS DATE)=@WorkDate;
+
+SELECT TOP 12 i.ItemName AS Name, SUM(i.Quantity) AS Quantity, SUM(i.LineTotal) AS Amount
+FROM dbo.PosOrderItems i WITH (READPAST)
+JOIN dbo.PosOrders o WITH (READPAST) ON o.Guid = i.OrderGuid
+WHERE UPPER(o.Status)='PAID' AND CAST(o.CreateDate AS DATE)=@WorkDate
+GROUP BY i.ItemName ORDER BY Amount DESC;
 
 SELECT DATEPART(HOUR, PaidAt) AS Hour, SUM(TotalAmount) AS Revenue, COUNT(1) AS Orders
-FROM dbo.ComPosOrders
-WHERE Status='PAID' AND CAST(CreatedAt AS DATE)=@Date
+FROM dbo.PosOrders WITH (READPAST)
+WHERE UPPER(Status)='PAID' AND CAST(CreateDate AS DATE)=@WorkDate
 GROUP BY DATEPART(HOUR, PaidAt) ORDER BY Hour;
-`);
+
+SELECT UPPER(Status) AS Status, COUNT(1) AS CountOrder, SUM(TotalAmount) AS Amount
+FROM dbo.PosOrders WITH (READPAST)
+WHERE CAST(CreateDate AS DATE)=@WorkDate
+GROUP BY UPPER(Status);
+`));
     const recordsets = summary.recordsets as sql.IRecordSet<any>[];
 
     res.json({
@@ -809,6 +930,7 @@ GROUP BY DATEPART(HOUR, PaidAt) ORDER BY Hour;
         summary: recordsets[0]?.[0] || {},
         topItems: recordsets[1] || [],
         hourly: recordsets[2] || [],
+        statusBreakdown: recordsets[3] || [],
       },
     });
   } catch (error: any) {
