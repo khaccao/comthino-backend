@@ -74,6 +74,23 @@ import {
   updateReview,
   deleteReview,
 } from '../controllers/seoAdminController';
+import {
+  addPosOrderItem,
+  confirmKitchen,
+  deletePosOrderItem,
+  getPosBootstrap,
+  getPosDashboard,
+  getPosHistory,
+  getPosOrderDetail,
+  openPosOrder,
+  payPosOrder,
+  updatePosOrder,
+  updatePosOrderItem,
+  updatePrintTemplate,
+  upsertPosMenuCategory,
+  upsertPosMenuItem,
+  upsertPosTable,
+} from '../controllers/posAdminController';
 
 const router = Router();
 
@@ -83,6 +100,26 @@ router.use(requireAdmin);
 
 // Dashboard
 router.get('/dashboard', getDashboard);
+
+// POS
+router.get('/pos/bootstrap', getPosBootstrap);
+router.post('/pos/tables', upsertPosTable);
+router.put('/pos/tables/:id', upsertPosTable);
+router.post('/pos/menu-categories', upsertPosMenuCategory);
+router.put('/pos/menu-categories/:id', upsertPosMenuCategory);
+router.post('/pos/menu-items', upsertPosMenuItem);
+router.put('/pos/menu-items/:id', upsertPosMenuItem);
+router.post('/pos/orders/open', openPosOrder);
+router.get('/pos/orders/history', getPosHistory);
+router.get('/pos/orders/:id', getPosOrderDetail);
+router.put('/pos/orders/:id', updatePosOrder);
+router.post('/pos/orders/:id/items', addPosOrderItem);
+router.put('/pos/orders/:id/items/:itemId', updatePosOrderItem);
+router.delete('/pos/orders/:id/items/:itemId', deletePosOrderItem);
+router.post('/pos/orders/:id/confirm-kitchen', confirmKitchen);
+router.post('/pos/orders/:id/pay', payPosOrder);
+router.get('/pos/dashboard', getPosDashboard);
+router.put('/pos/print-templates/:code', updatePrintTemplate);
 
 // Site Settings (There's only 1 settings record, so GET & PUT are enough)
 router.get('/site-settings', getSiteSettings);

@@ -1,0 +1,600 @@
+import { Response } from 'express';
+import crypto from 'crypto';
+import prisma from '../config/prisma';
+import { getCaoPool, sql } from '../config/caoSql';
+import { AuthenticatedRequest } from '../middlewares/auth';
+
+type Money = number | string | null | undefined;
+
+const toNumber = (value: Money) => Number(value || 0);
+const toBool = (value: unknown) => value === true || value === 'true' || value === 1 || value === '1';
+const newId = () => crypto.randomUUID();
+
+const row = <T>(recordset: T[]) => recordset[0] || null;
+
+const ensurePosSchema = async () => {
+  const pool = await getCaoPool();
+
+  await pool.request().batch(`
+IF OBJECT_ID(N'dbo.ComPosTables', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.ComPosTables (
+    Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+    Code NVARCHAR(50) NOT NULL,
+    Name NVARCHAR(120) NOT NULL,
+    AreaName NVARCHAR(120) NULL,
+    SeatCount INT NOT NULL CONSTRAINT DF_ComPosTables_SeatCount DEFAULT 4,
+    SortOrder INT NOT NULL CONSTRAINT DF_ComPosTables_SortOrder DEFAULT 0,
+    Status NVARCHAR(30) NOT NULL CONSTRAINT DF_ComPosTables_Status DEFAULT 'AVAILABLE',
+    IsActive BIT NOT NULL CONSTRAINT DF_ComPosTables_IsActive DEFAULT 1,
+    CreatedAt DATETIME2 NOT NULL CONSTRAINT DF_ComPosTables_CreatedAt DEFAULT SYSDATETIME(),
+    UpdatedAt DATETIME2 NULL
+  );
+  CREATE UNIQUE INDEX UX_ComPosTables_Code ON dbo.ComPosTables(Code);
+END;
+
+IF OBJECT_ID(N'dbo.ComPosMenuCategories', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.ComPosMenuCategories (
+    Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+    Name NVARCHAR(160) NOT NULL,
+    Description NVARCHAR(MAX) NULL,
+    SortOrder INT NOT NULL CONSTRAINT DF_ComPosMenuCategories_SortOrder DEFAULT 0,
+    IsActive BIT NOT NULL CONSTRAINT DF_ComPosMenuCategories_IsActive DEFAULT 1,
+    CreatedAt DATETIME2 NOT NULL CONSTRAINT DF_ComPosMenuCategories_CreatedAt DEFAULT SYSDATETIME(),
+    UpdatedAt DATETIME2 NULL
+  );
+END;
+
+IF OBJECT_ID(N'dbo.ComPosMenuItems', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.ComPosMenuItems (
+    Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+    CategoryId NVARCHAR(64) NULL,
+    Code NVARCHAR(80) NOT NULL,
+    Name NVARCHAR(220) NOT NULL,
+    Unit NVARCHAR(40) NOT NULL CONSTRAINT DF_ComPosMenuItems_Unit DEFAULT N'phần',
+    Price DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosMenuItems_Price DEFAULT 0,
+    ImageUrl NVARCHAR(MAX) NULL,
+    Description NVARCHAR(MAX) NULL,
+    SortOrder INT NOT NULL CONSTRAINT DF_ComPosMenuItems_SortOrder DEFAULT 0,
+    IsActive BIT NOT NULL CONSTRAINT DF_ComPosMenuItems_IsActive DEFAULT 1,
+    CreatedAt DATETIME2 NOT NULL CONSTRAINT DF_ComPosMenuItems_CreatedAt DEFAULT SYSDATETIME(),
+    UpdatedAt DATETIME2 NULL
+  );
+  CREATE UNIQUE INDEX UX_ComPosMenuItems_Code ON dbo.ComPosMenuItems(Code);
+END;
+
+IF OBJECT_ID(N'dbo.ComPosOrders', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.ComPosOrders (
+    Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+    OrderNo NVARCHAR(60) NOT NULL,
+    TableId NVARCHAR(64) NOT NULL,
+    TableName NVARCHAR(120) NOT NULL,
+    Status NVARCHAR(30) NOT NULL CONSTRAINT DF_ComPosOrders_Status DEFAULT 'OPEN',
+    Note NVARCHAR(MAX) NULL,
+    SubTotal DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrders_SubTotal DEFAULT 0,
+    DiscountAmount DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrders_Discount DEFAULT 0,
+    ServiceCharge DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrders_Service DEFAULT 0,
+    VatAmount DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrders_Vat DEFAULT 0,
+    TotalAmount DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrders_Total DEFAULT 0,
+    PaymentMethod NVARCHAR(40) NULL,
+    KitchenPrintedAt DATETIME2 NULL,
+    PaidAt DATETIME2 NULL,
+    CreatedAt DATETIME2 NOT NULL CONSTRAINT DF_ComPosOrders_CreatedAt DEFAULT SYSDATETIME(),
+    UpdatedAt DATETIME2 NULL
+  );
+  CREATE UNIQUE INDEX UX_ComPosOrders_OrderNo ON dbo.ComPosOrders(OrderNo);
+  CREATE INDEX IX_ComPosOrders_Table_Status ON dbo.ComPosOrders(TableId, Status);
+  CREATE INDEX IX_ComPosOrders_CreatedAt ON dbo.ComPosOrders(CreatedAt);
+END;
+
+IF OBJECT_ID(N'dbo.ComPosOrderItems', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.ComPosOrderItems (
+    Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+    OrderId NVARCHAR(64) NOT NULL,
+    MenuItemId NVARCHAR(64) NULL,
+    Code NVARCHAR(80) NULL,
+    Name NVARCHAR(220) NOT NULL,
+    UnitPrice DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrderItems_UnitPrice DEFAULT 0,
+    Quantity DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrderItems_Quantity DEFAULT 1,
+    Note NVARCHAR(MAX) NULL,
+    Status NVARCHAR(30) NOT NULL CONSTRAINT DF_ComPosOrderItems_Status DEFAULT 'NEW',
+    CreatedAt DATETIME2 NOT NULL CONSTRAINT DF_ComPosOrderItems_CreatedAt DEFAULT SYSDATETIME(),
+    UpdatedAt DATETIME2 NULL
+  );
+  CREATE INDEX IX_ComPosOrderItems_OrderId ON dbo.ComPosOrderItems(OrderId);
+END;
+
+IF OBJECT_ID(N'dbo.ComPosPrintTemplates', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.ComPosPrintTemplates (
+    Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+    Code NVARCHAR(40) NOT NULL,
+    Name NVARCHAR(120) NOT NULL,
+    Content NVARCHAR(MAX) NOT NULL,
+    UpdatedAt DATETIME2 NOT NULL CONSTRAINT DF_ComPosPrintTemplates_UpdatedAt DEFAULT SYSDATETIME()
+  );
+  CREATE UNIQUE INDEX UX_ComPosPrintTemplates_Code ON dbo.ComPosPrintTemplates(Code);
+END;
+`);
+
+  await seedPosData();
+};
+
+const defaultTemplates = [
+  {
+    code: 'KITCHEN',
+    name: 'Phiếu bếp',
+    content:
+      '<section class="pos-print"><header><b>CƠM THỊ NỞ</b><strong>BẾP</strong><span>Check No: {{OrderNo}}</span><span>Bàn: {{TableName}}</span><span>{{CreatedAt}}</span></header><table><thead><tr><th>Món</th><th>SL</th><th>Ghi chú</th></tr></thead><tbody>{{Items}}</tbody></table><footer><div>{{OrderNote}}</div></footer></section>',
+  },
+  {
+    code: 'TEMPORARY',
+    name: 'Hóa đơn tạm',
+    content:
+      '<section class="pos-print"><header><b>CƠM THỊ NỞ</b><strong>TẠM TÍNH</strong><span>Check No: {{OrderNo}}</span><span>Bàn: {{TableName}}</span><span>{{CreatedAt}}</span></header><table><thead><tr><th>Món</th><th>SL</th><th>Giá</th><th>Tiền</th></tr></thead><tbody>{{Items}}</tbody></table><footer><div><span>Tạm tính</span><b>{{SubTotal}}</b></div><div><span>Giảm giá</span><b>{{DiscountAmount}}</b></div><div class="total"><span>Tổng</span><b>{{TotalAmount}}</b></div></footer></section>',
+  },
+  {
+    code: 'PAYMENT',
+    name: 'Thanh toán',
+    content:
+      '<section class="pos-print"><header><b>CƠM THỊ NỞ</b><strong>THANH TOÁN</strong><span>Check No: {{OrderNo}}</span><span>Bàn: {{TableName}}</span><span>{{CreatedAt}}</span></header><table><thead><tr><th>Món</th><th>SL</th><th>Giá</th><th>Tiền</th></tr></thead><tbody>{{Items}}</tbody></table><footer><div><span>Tạm tính</span><b>{{SubTotal}}</b></div><div><span>Phí dịch vụ</span><b>{{ServiceCharge}}</b></div><div><span>VAT</span><b>{{VatAmount}}</b></div><div><span>Giảm giá</span><b>{{DiscountAmount}}</b></div><div class="total"><span>Tổng tiền</span><b>{{TotalAmount}}</b></div><img src="{{PaymentQrUrl}}" alt="Payment QR" /><div class="qr-text">QUÉT MÃ QR ĐỂ THANH TOÁN</div></footer></section>',
+  },
+];
+
+const seedPosData = async () => {
+  const pool = await getCaoPool();
+  const tableCount = row<{ total: number }>((await pool.request().query('SELECT COUNT(1) AS total FROM dbo.ComPosTables')).recordset);
+  if (!tableCount?.total) {
+    const tables = ['H1', 'H2', 'H3', 'H4', 'B1', 'B2', 'B3', 'B4'];
+    for (let index = 0; index < tables.length; index += 1) {
+      await pool
+        .request()
+        .input('Id', sql.NVarChar(64), newId())
+        .input('Code', sql.NVarChar(50), tables[index])
+        .input('Name', sql.NVarChar(120), tables[index])
+        .input('AreaName', sql.NVarChar(120), tables[index].startsWith('H') ? 'Nhà hàng' : 'Ban công')
+        .input('SortOrder', sql.Int, index + 1)
+        .query('INSERT INTO dbo.ComPosTables (Id, Code, Name, AreaName, SortOrder) VALUES (@Id, @Code, @Name, @AreaName, @SortOrder)');
+    }
+  }
+
+  const categoryCount = row<{ total: number }>((await pool.request().query('SELECT COUNT(1) AS total FROM dbo.ComPosMenuCategories')).recordset);
+  if (!categoryCount?.total) {
+    const webCategories = await prisma.menuCategory.findMany({ orderBy: { displayOrder: 'asc' } });
+    for (const category of webCategories) {
+      await pool
+        .request()
+        .input('Id', sql.NVarChar(64), category.id)
+        .input('Name', sql.NVarChar(160), category.name)
+        .input('Description', sql.NVarChar(sql.MAX), category.description || null)
+        .input('SortOrder', sql.Int, category.displayOrder)
+        .input('IsActive', sql.Bit, category.isActive)
+        .query('INSERT INTO dbo.ComPosMenuCategories (Id, Name, Description, SortOrder, IsActive) VALUES (@Id, @Name, @Description, @SortOrder, @IsActive)');
+    }
+  }
+
+  const itemCount = row<{ total: number }>((await pool.request().query('SELECT COUNT(1) AS total FROM dbo.ComPosMenuItems')).recordset);
+  if (!itemCount?.total) {
+    const webItems = await prisma.menuItem.findMany({ orderBy: { displayOrder: 'asc' } });
+    for (let index = 0; index < webItems.length; index += 1) {
+      const item = webItems[index];
+      await pool
+        .request()
+        .input('Id', sql.NVarChar(64), item.id)
+        .input('CategoryId', sql.NVarChar(64), item.categoryId)
+        .input('Code', sql.NVarChar(80), `COM${String(index + 1).padStart(3, '0')}`)
+        .input('Name', sql.NVarChar(220), item.name)
+        .input('Unit', sql.NVarChar(40), 'phần')
+        .input('Price', sql.Decimal(18, 2), Number(item.salePrice || item.price || 0))
+        .input('ImageUrl', sql.NVarChar(sql.MAX), item.imageUrl || null)
+        .input('Description', sql.NVarChar(sql.MAX), item.shortDescription || item.description || null)
+        .input('SortOrder', sql.Int, item.displayOrder)
+        .input('IsActive', sql.Bit, item.isAvailable)
+        .query(`INSERT INTO dbo.ComPosMenuItems
+          (Id, CategoryId, Code, Name, Unit, Price, ImageUrl, Description, SortOrder, IsActive)
+          VALUES (@Id, @CategoryId, @Code, @Name, @Unit, @Price, @ImageUrl, @Description, @SortOrder, @IsActive)`);
+    }
+  }
+
+  for (const template of defaultTemplates) {
+    await pool
+      .request()
+      .input('Id', sql.NVarChar(64), newId())
+      .input('Code', sql.NVarChar(40), template.code)
+      .input('Name', sql.NVarChar(120), template.name)
+      .input('Content', sql.NVarChar(sql.MAX), template.content)
+      .query(`IF NOT EXISTS (SELECT 1 FROM dbo.ComPosPrintTemplates WHERE Code = @Code)
+        INSERT INTO dbo.ComPosPrintTemplates (Id, Code, Name, Content) VALUES (@Id, @Code, @Name, @Content)`);
+  }
+};
+
+const orderSelect = `
+SELECT o.*,
+  (SELECT COUNT(1) FROM dbo.ComPosOrderItems i WHERE i.OrderId = o.Id) AS ItemCount
+FROM dbo.ComPosOrders o`;
+
+const getOrderById = async (orderId: string) => {
+  const pool = await getCaoPool();
+  const orderResult = await pool.request().input('Id', sql.NVarChar(64), orderId).query(`${orderSelect} WHERE o.Id = @Id`);
+  const order = row<any>(orderResult.recordset);
+  if (!order) return null;
+  const items = await pool
+    .request()
+    .input('OrderId', sql.NVarChar(64), orderId)
+    .query('SELECT * FROM dbo.ComPosOrderItems WHERE OrderId = @OrderId ORDER BY CreatedAt ASC');
+  return { ...order, items: items.recordset };
+};
+
+const recalculateOrder = async (orderId: string, discountAmount?: number) => {
+  const pool = await getCaoPool();
+  const current = await pool.request().input('Id', sql.NVarChar(64), orderId).query('SELECT DiscountAmount FROM dbo.ComPosOrders WHERE Id = @Id');
+  const discount = discountAmount ?? toNumber(row<any>(current.recordset)?.DiscountAmount);
+  const totalResult = await pool
+    .request()
+    .input('OrderId', sql.NVarChar(64), orderId)
+    .query('SELECT SUM(UnitPrice * Quantity) AS SubTotal FROM dbo.ComPosOrderItems WHERE OrderId = @OrderId');
+  const subTotal = toNumber(row<any>(totalResult.recordset)?.SubTotal);
+  const totalAmount = Math.max(0, subTotal - discount);
+  await pool
+    .request()
+    .input('Id', sql.NVarChar(64), orderId)
+    .input('SubTotal', sql.Decimal(18, 2), subTotal)
+    .input('DiscountAmount', sql.Decimal(18, 2), discount)
+    .input('TotalAmount', sql.Decimal(18, 2), totalAmount)
+    .query(`UPDATE dbo.ComPosOrders
+      SET SubTotal = @SubTotal, DiscountAmount = @DiscountAmount, TotalAmount = @TotalAmount, UpdatedAt = SYSDATETIME()
+      WHERE Id = @Id`);
+};
+
+const generateOrderNo = async () => {
+  const pool = await getCaoPool();
+  const prefix = `CTN${new Date().toISOString().slice(2, 10).replace(/-/g, '')}`;
+  const result = await pool
+    .request()
+    .input('Prefix', sql.NVarChar(20), `${prefix}%`)
+    .query('SELECT COUNT(1) + 1 AS NextNo FROM dbo.ComPosOrders WHERE OrderNo LIKE @Prefix');
+  const nextNo = row<{ NextNo: number }>(result.recordset)?.NextNo || 1;
+  return `${prefix}-${String(nextNo).padStart(3, '0')}`;
+};
+
+export const getPosBootstrap = async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    const [tables, categories, items, openOrders, templates] = await Promise.all([
+      pool.request().query('SELECT * FROM dbo.ComPosTables WHERE IsActive = 1 ORDER BY SortOrder, Name'),
+      pool.request().query('SELECT * FROM dbo.ComPosMenuCategories WHERE IsActive = 1 ORDER BY SortOrder, Name'),
+      pool.request().query('SELECT * FROM dbo.ComPosMenuItems WHERE IsActive = 1 ORDER BY SortOrder, Name'),
+      pool.request().query(`${orderSelect} WHERE o.Status IN ('OPEN', 'ORDERED') ORDER BY o.CreatedAt DESC`),
+      pool.request().query('SELECT Code, Name, Content, UpdatedAt FROM dbo.ComPosPrintTemplates ORDER BY Code'),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        tables: tables.recordset,
+        categories: categories.recordset,
+        menuItems: items.recordset,
+        openOrders: openOrders.recordset,
+        templates: templates.recordset,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Không tải được POS.' });
+  }
+};
+
+export const upsertPosTable = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    const id = req.params.id || req.body.id || newId();
+    await pool
+      .request()
+      .input('Id', sql.NVarChar(64), id)
+      .input('Code', sql.NVarChar(50), req.body.code || req.body.name)
+      .input('Name', sql.NVarChar(120), req.body.name || req.body.code)
+      .input('AreaName', sql.NVarChar(120), req.body.areaName || null)
+      .input('SeatCount', sql.Int, Number(req.body.seatCount || 4))
+      .input('SortOrder', sql.Int, Number(req.body.sortOrder || 0))
+      .input('IsActive', sql.Bit, req.body.isActive === undefined ? true : toBool(req.body.isActive))
+      .query(`MERGE dbo.ComPosTables AS target
+        USING (SELECT @Id AS Id) AS source ON target.Id = source.Id
+        WHEN MATCHED THEN UPDATE SET Code=@Code, Name=@Name, AreaName=@AreaName, SeatCount=@SeatCount, SortOrder=@SortOrder, IsActive=@IsActive, UpdatedAt=SYSDATETIME()
+        WHEN NOT MATCHED THEN INSERT (Id, Code, Name, AreaName, SeatCount, SortOrder, IsActive) VALUES (@Id, @Code, @Name, @AreaName, @SeatCount, @SortOrder, @IsActive);`);
+    res.json({ success: true, data: { id } });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Không lưu được bàn.' });
+  }
+};
+
+export const upsertPosMenuCategory = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    const id = req.params.id || req.body.id || newId();
+    await pool
+      .request()
+      .input('Id', sql.NVarChar(64), id)
+      .input('Name', sql.NVarChar(160), req.body.name)
+      .input('Description', sql.NVarChar(sql.MAX), req.body.description || null)
+      .input('SortOrder', sql.Int, Number(req.body.sortOrder || 0))
+      .input('IsActive', sql.Bit, req.body.isActive === undefined ? true : toBool(req.body.isActive))
+      .query(`MERGE dbo.ComPosMenuCategories AS target
+        USING (SELECT @Id AS Id) AS source ON target.Id = source.Id
+        WHEN MATCHED THEN UPDATE SET Name=@Name, Description=@Description, SortOrder=@SortOrder, IsActive=@IsActive, UpdatedAt=SYSDATETIME()
+        WHEN NOT MATCHED THEN INSERT (Id, Name, Description, SortOrder, IsActive) VALUES (@Id, @Name, @Description, @SortOrder, @IsActive);`);
+    res.json({ success: true, data: { id } });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Không lưu được nhóm món.' });
+  }
+};
+
+export const upsertPosMenuItem = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    const id = req.params.id || req.body.id || newId();
+    await pool
+      .request()
+      .input('Id', sql.NVarChar(64), id)
+      .input('CategoryId', sql.NVarChar(64), req.body.categoryId || null)
+      .input('Code', sql.NVarChar(80), req.body.code || id.slice(0, 8))
+      .input('Name', sql.NVarChar(220), req.body.name)
+      .input('Unit', sql.NVarChar(40), req.body.unit || 'phần')
+      .input('Price', sql.Decimal(18, 2), toNumber(req.body.price))
+      .input('ImageUrl', sql.NVarChar(sql.MAX), req.body.imageUrl || null)
+      .input('Description', sql.NVarChar(sql.MAX), req.body.description || null)
+      .input('SortOrder', sql.Int, Number(req.body.sortOrder || 0))
+      .input('IsActive', sql.Bit, req.body.isActive === undefined ? true : toBool(req.body.isActive))
+      .query(`MERGE dbo.ComPosMenuItems AS target
+        USING (SELECT @Id AS Id) AS source ON target.Id = source.Id
+        WHEN MATCHED THEN UPDATE SET CategoryId=@CategoryId, Code=@Code, Name=@Name, Unit=@Unit, Price=@Price, ImageUrl=@ImageUrl, Description=@Description, SortOrder=@SortOrder, IsActive=@IsActive, UpdatedAt=SYSDATETIME()
+        WHEN NOT MATCHED THEN INSERT (Id, CategoryId, Code, Name, Unit, Price, ImageUrl, Description, SortOrder, IsActive) VALUES (@Id, @CategoryId, @Code, @Name, @Unit, @Price, @ImageUrl, @Description, @SortOrder, @IsActive);`);
+    res.json({ success: true, data: { id } });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Không lưu được món POS.' });
+  }
+};
+
+export const openPosOrder = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    const tableId = req.body.tableId;
+    const existing = await pool
+      .request()
+      .input('TableId', sql.NVarChar(64), tableId)
+      .query(`${orderSelect} WHERE o.TableId = @TableId AND o.Status IN ('OPEN', 'ORDERED') ORDER BY o.CreatedAt DESC`);
+    const current = row<any>(existing.recordset);
+    if (current) {
+      res.json({ success: true, data: await getOrderById(current.Id) });
+      return;
+    }
+
+    const table = row<any>((await pool.request().input('Id', sql.NVarChar(64), tableId).query('SELECT * FROM dbo.ComPosTables WHERE Id = @Id')).recordset);
+    if (!table) {
+      res.status(404).json({ success: false, message: 'Không tìm thấy bàn.' });
+      return;
+    }
+
+    const orderId = newId();
+    const orderNo = await generateOrderNo();
+    await pool
+      .request()
+      .input('Id', sql.NVarChar(64), orderId)
+      .input('OrderNo', sql.NVarChar(60), orderNo)
+      .input('TableId', sql.NVarChar(64), table.Id)
+      .input('TableName', sql.NVarChar(120), table.Name)
+      .query(`INSERT INTO dbo.ComPosOrders (Id, OrderNo, TableId, TableName)
+        VALUES (@Id, @OrderNo, @TableId, @TableName);
+        UPDATE dbo.ComPosTables SET Status = 'OCCUPIED', UpdatedAt = SYSDATETIME() WHERE Id = @TableId;`);
+
+    res.status(201).json({ success: true, data: await getOrderById(orderId) });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Không mở được order.' });
+  }
+};
+
+export const addPosOrderItem = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    const orderId = req.params.id;
+    const menuItem = row<any>((await pool.request().input('Id', sql.NVarChar(64), req.body.menuItemId).query('SELECT * FROM dbo.ComPosMenuItems WHERE Id = @Id')).recordset);
+    if (!menuItem) {
+      res.status(404).json({ success: false, message: 'Không tìm thấy món.' });
+      return;
+    }
+
+    const itemId = newId();
+    await pool
+      .request()
+      .input('Id', sql.NVarChar(64), itemId)
+      .input('OrderId', sql.NVarChar(64), orderId)
+      .input('MenuItemId', sql.NVarChar(64), menuItem.Id)
+      .input('Code', sql.NVarChar(80), menuItem.Code)
+      .input('Name', sql.NVarChar(220), menuItem.Name)
+      .input('UnitPrice', sql.Decimal(18, 2), toNumber(req.body.unitPrice ?? menuItem.Price))
+      .input('Quantity', sql.Decimal(18, 2), toNumber(req.body.quantity || 1))
+      .input('Note', sql.NVarChar(sql.MAX), req.body.note || null)
+      .query(`INSERT INTO dbo.ComPosOrderItems (Id, OrderId, MenuItemId, Code, Name, UnitPrice, Quantity, Note)
+        VALUES (@Id, @OrderId, @MenuItemId, @Code, @Name, @UnitPrice, @Quantity, @Note)`);
+    await recalculateOrder(orderId);
+    res.status(201).json({ success: true, data: await getOrderById(orderId) });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Không thêm được món.' });
+  }
+};
+
+export const updatePosOrderItem = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    await pool
+      .request()
+      .input('Id', sql.NVarChar(64), req.params.itemId)
+      .input('Quantity', sql.Decimal(18, 2), Math.max(0, toNumber(req.body.quantity)))
+      .input('UnitPrice', sql.Decimal(18, 2), Math.max(0, toNumber(req.body.unitPrice)))
+      .input('Note', sql.NVarChar(sql.MAX), req.body.note || null)
+      .query('UPDATE dbo.ComPosOrderItems SET Quantity=@Quantity, UnitPrice=@UnitPrice, Note=@Note, Status = CASE WHEN Status = \'SENT\' THEN \'CHANGED\' ELSE Status END, UpdatedAt=SYSDATETIME() WHERE Id=@Id');
+    await pool.request().input('Id', sql.NVarChar(64), req.params.itemId).query('DELETE FROM dbo.ComPosOrderItems WHERE Id=@Id AND Quantity <= 0');
+    await recalculateOrder(req.params.id);
+    res.json({ success: true, data: await getOrderById(req.params.id) });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Không cập nhật được món.' });
+  }
+};
+
+export const deletePosOrderItem = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    await pool.request().input('Id', sql.NVarChar(64), req.params.itemId).query('DELETE FROM dbo.ComPosOrderItems WHERE Id = @Id');
+    await recalculateOrder(req.params.id);
+    res.json({ success: true, data: await getOrderById(req.params.id) });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Không xóa được món.' });
+  }
+};
+
+export const updatePosOrder = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    await pool
+      .request()
+      .input('Id', sql.NVarChar(64), req.params.id)
+      .input('Note', sql.NVarChar(sql.MAX), req.body.note || null)
+      .input('DiscountAmount', sql.Decimal(18, 2), Math.max(0, toNumber(req.body.discountAmount)))
+      .query('UPDATE dbo.ComPosOrders SET Note=@Note, DiscountAmount=@DiscountAmount, UpdatedAt=SYSDATETIME() WHERE Id=@Id');
+    await recalculateOrder(req.params.id, Math.max(0, toNumber(req.body.discountAmount)));
+    res.json({ success: true, data: await getOrderById(req.params.id) });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Không cập nhật được order.' });
+  }
+};
+
+export const confirmKitchen = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    await pool
+      .request()
+      .input('Id', sql.NVarChar(64), req.params.id)
+      .query(`UPDATE dbo.ComPosOrders SET Status='ORDERED', KitchenPrintedAt=SYSDATETIME(), UpdatedAt=SYSDATETIME() WHERE Id=@Id;
+        UPDATE dbo.ComPosOrderItems SET Status='SENT', UpdatedAt=SYSDATETIME() WHERE OrderId=@Id;`);
+    res.json({ success: true, data: await getOrderById(req.params.id) });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Không xác nhận được bếp.' });
+  }
+};
+
+export const payPosOrder = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    const order = await getOrderById(req.params.id);
+    if (!order) {
+      res.status(404).json({ success: false, message: 'Không tìm thấy order.' });
+      return;
+    }
+    await pool
+      .request()
+      .input('Id', sql.NVarChar(64), req.params.id)
+      .input('TableId', sql.NVarChar(64), order.TableId)
+      .input('PaymentMethod', sql.NVarChar(40), req.body.paymentMethod || 'CASH')
+      .query(`UPDATE dbo.ComPosOrders SET Status='PAID', PaymentMethod=@PaymentMethod, PaidAt=SYSDATETIME(), UpdatedAt=SYSDATETIME() WHERE Id=@Id;
+        UPDATE dbo.ComPosTables SET Status='AVAILABLE', UpdatedAt=SYSDATETIME() WHERE Id=@TableId;`);
+    res.json({ success: true, data: await getOrderById(req.params.id) });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Không thanh toán được order.' });
+  }
+};
+
+export const getPosHistory = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    const date = String(req.query.date || new Date().toISOString().slice(0, 10));
+    const orders = await pool
+      .request()
+      .input('Date', sql.Date, date)
+      .query(`${orderSelect} WHERE CAST(o.CreatedAt AS DATE)=@Date ORDER BY o.CreatedAt DESC`);
+    res.json({ success: true, data: orders.recordset });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Không tải được lịch sử POS.' });
+  }
+};
+
+export const getPosOrderDetail = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const order = await getOrderById(req.params.id);
+    if (!order) {
+      res.status(404).json({ success: false, message: 'Không tìm thấy order.' });
+      return;
+    }
+    res.json({ success: true, data: order });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Không tải được chi tiết order.' });
+  }
+};
+
+export const getPosDashboard = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    const date = String(req.query.date || new Date().toISOString().slice(0, 10));
+    const summary = await pool.request().input('Date', sql.Date, date).query(`
+SELECT
+  SUM(CASE WHEN Status='PAID' THEN TotalAmount ELSE 0 END) AS Revenue,
+  COUNT(CASE WHEN Status='PAID' THEN 1 END) AS PaidOrders,
+  COUNT(CASE WHEN Status IN ('OPEN','ORDERED') THEN 1 END) AS OpenOrders,
+  AVG(CASE WHEN Status='PAID' THEN TotalAmount END) AS AverageBill
+FROM dbo.ComPosOrders WHERE CAST(CreatedAt AS DATE)=@Date;
+
+SELECT TOP 8 i.Name, SUM(i.Quantity) AS Quantity, SUM(i.Quantity * i.UnitPrice) AS Amount
+FROM dbo.ComPosOrderItems i
+JOIN dbo.ComPosOrders o ON o.Id = i.OrderId
+WHERE o.Status='PAID' AND CAST(o.CreatedAt AS DATE)=@Date
+GROUP BY i.Name ORDER BY Amount DESC;
+
+SELECT DATEPART(HOUR, PaidAt) AS Hour, SUM(TotalAmount) AS Revenue, COUNT(1) AS Orders
+FROM dbo.ComPosOrders
+WHERE Status='PAID' AND CAST(CreatedAt AS DATE)=@Date
+GROUP BY DATEPART(HOUR, PaidAt) ORDER BY Hour;
+`);
+    const recordsets = summary.recordsets as sql.IRecordSet<any>[];
+
+    res.json({
+      success: true,
+      data: {
+        summary: recordsets[0]?.[0] || {},
+        topItems: recordsets[1] || [],
+        hourly: recordsets[2] || [],
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Không tải được dashboard POS.' });
+  }
+};
+
+export const updatePrintTemplate = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    await pool
+      .request()
+      .input('Code', sql.NVarChar(40), req.params.code)
+      .input('Content', sql.NVarChar(sql.MAX), req.body.content || '')
+      .query('UPDATE dbo.ComPosPrintTemplates SET Content=@Content, UpdatedAt=SYSDATETIME() WHERE Code=@Code');
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Không lưu được mẫu in.' });
+  }
+};
