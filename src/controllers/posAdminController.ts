@@ -24,9 +24,16 @@ BEGIN
     Name NVARCHAR(120) NOT NULL,
     AreaName NVARCHAR(120) NULL,
     SeatCount INT NOT NULL CONSTRAINT DF_ComPosTables_SeatCount DEFAULT 4,
+    PositionX INT NOT NULL CONSTRAINT DF_ComPosTables_PositionX DEFAULT 0,
+    PositionY INT NOT NULL CONSTRAINT DF_ComPosTables_PositionY DEFAULT 0,
+    Width INT NOT NULL CONSTRAINT DF_ComPosTables_Width DEFAULT 130,
+    Height INT NOT NULL CONSTRAINT DF_ComPosTables_Height DEFAULT 100,
+    Shape NVARCHAR(20) NOT NULL CONSTRAINT DF_ComPosTables_Shape DEFAULT 'RECT',
     SortOrder INT NOT NULL CONSTRAINT DF_ComPosTables_SortOrder DEFAULT 0,
     Status NVARCHAR(30) NOT NULL CONSTRAINT DF_ComPosTables_Status DEFAULT 'AVAILABLE',
     IsActive BIT NOT NULL CONSTRAINT DF_ComPosTables_IsActive DEFAULT 1,
+    SourceGuid NVARCHAR(64) NULL,
+    SourceTable NVARCHAR(80) NULL,
     CreatedAt DATETIME2 NOT NULL CONSTRAINT DF_ComPosTables_CreatedAt DEFAULT SYSDATETIME(),
     UpdatedAt DATETIME2 NULL
   );
@@ -41,6 +48,8 @@ BEGIN
     Description NVARCHAR(MAX) NULL,
     SortOrder INT NOT NULL CONSTRAINT DF_ComPosMenuCategories_SortOrder DEFAULT 0,
     IsActive BIT NOT NULL CONSTRAINT DF_ComPosMenuCategories_IsActive DEFAULT 1,
+    SourceGuid NVARCHAR(64) NULL,
+    SourceTable NVARCHAR(80) NULL,
     CreatedAt DATETIME2 NOT NULL CONSTRAINT DF_ComPosMenuCategories_CreatedAt DEFAULT SYSDATETIME(),
     UpdatedAt DATETIME2 NULL
   );
@@ -59,6 +68,8 @@ BEGIN
     Description NVARCHAR(MAX) NULL,
     SortOrder INT NOT NULL CONSTRAINT DF_ComPosMenuItems_SortOrder DEFAULT 0,
     IsActive BIT NOT NULL CONSTRAINT DF_ComPosMenuItems_IsActive DEFAULT 1,
+    SourceGuid NVARCHAR(64) NULL,
+    SourceTable NVARCHAR(80) NULL,
     CreatedAt DATETIME2 NOT NULL CONSTRAINT DF_ComPosMenuItems_CreatedAt DEFAULT SYSDATETIME(),
     UpdatedAt DATETIME2 NULL
   );
@@ -121,7 +132,22 @@ BEGIN
 END;
 `);
 
-  await seedPosData();
+  await pool.request().batch(`
+IF COL_LENGTH('dbo.ComPosTables', 'PositionX') IS NULL ALTER TABLE dbo.ComPosTables ADD PositionX INT NOT NULL CONSTRAINT DF_ComPosTables_PositionX_Alter DEFAULT 0;
+IF COL_LENGTH('dbo.ComPosTables', 'PositionY') IS NULL ALTER TABLE dbo.ComPosTables ADD PositionY INT NOT NULL CONSTRAINT DF_ComPosTables_PositionY_Alter DEFAULT 0;
+IF COL_LENGTH('dbo.ComPosTables', 'Width') IS NULL ALTER TABLE dbo.ComPosTables ADD Width INT NOT NULL CONSTRAINT DF_ComPosTables_Width_Alter DEFAULT 130;
+IF COL_LENGTH('dbo.ComPosTables', 'Height') IS NULL ALTER TABLE dbo.ComPosTables ADD Height INT NOT NULL CONSTRAINT DF_ComPosTables_Height_Alter DEFAULT 100;
+IF COL_LENGTH('dbo.ComPosTables', 'Shape') IS NULL ALTER TABLE dbo.ComPosTables ADD Shape NVARCHAR(20) NOT NULL CONSTRAINT DF_ComPosTables_Shape_Alter DEFAULT 'RECT';
+IF COL_LENGTH('dbo.ComPosTables', 'SourceGuid') IS NULL ALTER TABLE dbo.ComPosTables ADD SourceGuid NVARCHAR(64) NULL;
+IF COL_LENGTH('dbo.ComPosTables', 'SourceTable') IS NULL ALTER TABLE dbo.ComPosTables ADD SourceTable NVARCHAR(80) NULL;
+IF COL_LENGTH('dbo.ComPosMenuCategories', 'SourceGuid') IS NULL ALTER TABLE dbo.ComPosMenuCategories ADD SourceGuid NVARCHAR(64) NULL;
+IF COL_LENGTH('dbo.ComPosMenuCategories', 'SourceTable') IS NULL ALTER TABLE dbo.ComPosMenuCategories ADD SourceTable NVARCHAR(80) NULL;
+IF COL_LENGTH('dbo.ComPosMenuItems', 'SourceGuid') IS NULL ALTER TABLE dbo.ComPosMenuItems ADD SourceGuid NVARCHAR(64) NULL;
+IF COL_LENGTH('dbo.ComPosMenuItems', 'SourceTable') IS NULL ALTER TABLE dbo.ComPosMenuItems ADD SourceTable NVARCHAR(80) NULL;
+`);
+
+  await syncHotelPosData();
+  await seedFallbackPosData();
 };
 
 const defaultTemplates = [
@@ -145,7 +171,148 @@ const defaultTemplates = [
   },
 ];
 
-const seedPosData = async () => {
+const syncHotelPosData = async () => {
+  const pool = await getCaoPool();
+
+  const sourceTableCount = row<{ total: number }>((await pool.request().query(`
+    SELECT COUNT(1) AS total
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='PosTables'
+  `)).recordset);
+
+  if (sourceTableCount?.total) {
+    await pool.request().query(`
+MERGE dbo.ComPosTables AS target
+USING (
+  SELECT
+    CONVERT(NVARCHAR(64), Guid) AS Id,
+    Code,
+    Name,
+    AreaName,
+    Seats AS SeatCount,
+    PositionX,
+    PositionY,
+    Width,
+    Height,
+    Shape,
+    Id AS SortOrder,
+    CASE WHEN Status IN ('OCCUPIED', 'BUSY') THEN 'OCCUPIED' ELSE 'AVAILABLE' END AS Status,
+    IsActive,
+    CONVERT(NVARCHAR(64), Guid) AS SourceGuid
+  FROM dbo.PosTables
+) AS source ON target.SourceGuid = source.SourceGuid OR target.Id = source.Id OR target.Code = source.Code
+WHEN MATCHED THEN UPDATE SET
+  target.Id = source.Id,
+  target.Code = source.Code,
+  target.Name = source.Name,
+  target.AreaName = source.AreaName,
+  target.SeatCount = source.SeatCount,
+  target.PositionX = source.PositionX,
+  target.PositionY = source.PositionY,
+  target.Width = source.Width,
+  target.Height = source.Height,
+  target.Shape = source.Shape,
+  target.SortOrder = source.SortOrder,
+  target.Status = CASE WHEN EXISTS (SELECT 1 FROM dbo.ComPosOrders o WHERE o.TableId = target.Id AND o.Status IN ('OPEN','ORDERED')) THEN 'OCCUPIED' ELSE source.Status END,
+  target.IsActive = source.IsActive,
+  target.SourceGuid = source.SourceGuid,
+  target.SourceTable = 'PosTables',
+  target.UpdatedAt = SYSDATETIME()
+WHEN NOT MATCHED THEN INSERT
+  (Id, Code, Name, AreaName, SeatCount, PositionX, PositionY, Width, Height, Shape, SortOrder, Status, IsActive, SourceGuid, SourceTable)
+  VALUES
+  (source.Id, source.Code, source.Name, source.AreaName, source.SeatCount, source.PositionX, source.PositionY, source.Width, source.Height, source.Shape, source.SortOrder, source.Status, source.IsActive, source.SourceGuid, 'PosTables');
+`);
+    await pool.request().query(`
+UPDATE t SET IsActive = 0, UpdatedAt = SYSDATETIME()
+FROM dbo.ComPosTables t
+WHERE t.SourceTable = 'PosTables'
+  AND NOT EXISTS (SELECT 1 FROM dbo.PosTables p WHERE CONVERT(NVARCHAR(64), p.Guid) = t.SourceGuid);
+`);
+  }
+
+  const sourceCategoryCount = row<{ total: number }>((await pool.request().query(`
+    SELECT COUNT(1) AS total
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='PosMenuCategories'
+  `)).recordset);
+  if (sourceCategoryCount?.total) {
+    await pool.request().query(`
+MERGE dbo.ComPosMenuCategories AS target
+USING (
+  SELECT CONVERT(NVARCHAR(64), Guid) AS Id, Code, Name, SortOrder, IsActive, CONVERT(NVARCHAR(64), Guid) AS SourceGuid
+  FROM dbo.PosMenuCategories
+) AS source ON target.SourceGuid = source.SourceGuid OR target.Id = source.Id OR target.Name = source.Name
+WHEN MATCHED THEN UPDATE SET
+  target.Id = source.Id,
+  target.Name = source.Name,
+  target.Description = source.Code,
+  target.SortOrder = source.SortOrder,
+  target.IsActive = source.IsActive,
+  target.SourceGuid = source.SourceGuid,
+  target.SourceTable = 'PosMenuCategories',
+  target.UpdatedAt = SYSDATETIME()
+WHEN NOT MATCHED THEN INSERT (Id, Name, Description, SortOrder, IsActive, SourceGuid, SourceTable)
+  VALUES (source.Id, source.Name, source.Code, source.SortOrder, source.IsActive, source.SourceGuid, 'PosMenuCategories');
+`);
+    await pool.request().query(`
+UPDATE c SET IsActive = 0, UpdatedAt = SYSDATETIME()
+FROM dbo.ComPosMenuCategories c
+WHERE ISNULL(c.SourceTable, '') <> 'PosMenuCategories';
+`);
+  }
+
+  const sourceItemCount = row<{ total: number }>((await pool.request().query(`
+    SELECT COUNT(1) AS total
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='PosMenuItems'
+  `)).recordset);
+  if (sourceItemCount?.total) {
+    await pool.request().query(`
+MERGE dbo.ComPosMenuItems AS target
+USING (
+  SELECT
+    CONVERT(NVARCHAR(64), i.Guid) AS Id,
+    CONVERT(NVARCHAR(64), i.CategoryGuid) AS CategoryId,
+    i.Code,
+    i.Name,
+    i.Unit,
+    i.Price,
+    CAST(NULL AS NVARCHAR(MAX)) AS ImageUrl,
+    i.Description,
+    i.SortOrder,
+    i.IsActive,
+    CONVERT(NVARCHAR(64), i.Guid) AS SourceGuid
+  FROM dbo.PosMenuItems i
+) AS source ON target.SourceGuid = source.SourceGuid OR target.Id = source.Id OR target.Code = source.Code
+WHEN MATCHED THEN UPDATE SET
+  target.Id = source.Id,
+  target.CategoryId = source.CategoryId,
+  target.Code = source.Code,
+  target.Name = source.Name,
+  target.Unit = source.Unit,
+  target.Price = source.Price,
+  target.ImageUrl = source.ImageUrl,
+  target.Description = source.Description,
+  target.SortOrder = source.SortOrder,
+  target.IsActive = source.IsActive,
+  target.SourceGuid = source.SourceGuid,
+  target.SourceTable = 'PosMenuItems',
+  target.UpdatedAt = SYSDATETIME()
+WHEN NOT MATCHED THEN INSERT (Id, CategoryId, Code, Name, Unit, Price, ImageUrl, Description, SortOrder, IsActive, SourceGuid, SourceTable)
+  VALUES (source.Id, source.CategoryId, source.Code, source.Name, source.Unit, source.Price, source.ImageUrl, source.Description, source.SortOrder, source.IsActive, source.SourceGuid, 'PosMenuItems');
+`);
+    await pool.request().query(`
+UPDATE i SET IsActive = 0, UpdatedAt = SYSDATETIME()
+FROM dbo.ComPosMenuItems i
+WHERE ISNULL(i.SourceTable, '') <> 'PosMenuItems';
+`);
+  }
+
+  await seedPrintTemplates(pool);
+};
+
+const seedFallbackPosData = async () => {
   const pool = await getCaoPool();
   const tableCount = row<{ total: number }>((await pool.request().query('SELECT COUNT(1) AS total FROM dbo.ComPosTables')).recordset);
   if (!tableCount?.total) {
@@ -157,8 +324,12 @@ const seedPosData = async () => {
         .input('Code', sql.NVarChar(50), tables[index])
         .input('Name', sql.NVarChar(120), tables[index])
         .input('AreaName', sql.NVarChar(120), tables[index].startsWith('H') ? 'Nhà hàng' : 'Ban công')
+        .input('PositionX', sql.Int, 24 + (index % 4) * 150)
+        .input('PositionY', sql.Int, 24 + Math.floor(index / 4) * 130)
         .input('SortOrder', sql.Int, index + 1)
-        .query('INSERT INTO dbo.ComPosTables (Id, Code, Name, AreaName, SortOrder) VALUES (@Id, @Code, @Name, @AreaName, @SortOrder)');
+        .query(`INSERT INTO dbo.ComPosTables
+          (Id, Code, Name, AreaName, PositionX, PositionY, SortOrder)
+          VALUES (@Id, @Code, @Name, @AreaName, @PositionX, @PositionY, @SortOrder)`);
     }
   }
 
@@ -200,6 +371,10 @@ const seedPosData = async () => {
     }
   }
 
+  await seedPrintTemplates(pool);
+};
+
+const seedPrintTemplates = async (pool: sql.ConnectionPool) => {
   for (const template of defaultTemplates) {
     await pool
       .request()
@@ -300,15 +475,72 @@ export const upsertPosTable = async (req: AuthenticatedRequest, res: Response) =
       .input('Name', sql.NVarChar(120), req.body.name || req.body.code)
       .input('AreaName', sql.NVarChar(120), req.body.areaName || null)
       .input('SeatCount', sql.Int, Number(req.body.seatCount || 4))
+      .input('PositionX', sql.Int, Number(req.body.positionX ?? req.body.PositionX ?? 0))
+      .input('PositionY', sql.Int, Number(req.body.positionY ?? req.body.PositionY ?? 0))
+      .input('Width', sql.Int, Number(req.body.width ?? req.body.Width ?? 130))
+      .input('Height', sql.Int, Number(req.body.height ?? req.body.Height ?? 100))
+      .input('Shape', sql.NVarChar(20), req.body.shape || req.body.Shape || 'RECT')
       .input('SortOrder', sql.Int, Number(req.body.sortOrder || 0))
       .input('IsActive', sql.Bit, req.body.isActive === undefined ? true : toBool(req.body.isActive))
       .query(`MERGE dbo.ComPosTables AS target
         USING (SELECT @Id AS Id) AS source ON target.Id = source.Id
-        WHEN MATCHED THEN UPDATE SET Code=@Code, Name=@Name, AreaName=@AreaName, SeatCount=@SeatCount, SortOrder=@SortOrder, IsActive=@IsActive, UpdatedAt=SYSDATETIME()
-        WHEN NOT MATCHED THEN INSERT (Id, Code, Name, AreaName, SeatCount, SortOrder, IsActive) VALUES (@Id, @Code, @Name, @AreaName, @SeatCount, @SortOrder, @IsActive);`);
+        WHEN MATCHED THEN UPDATE SET Code=@Code, Name=@Name, AreaName=@AreaName, SeatCount=@SeatCount, PositionX=@PositionX, PositionY=@PositionY, Width=@Width, Height=@Height, Shape=@Shape, SortOrder=@SortOrder, IsActive=@IsActive, UpdatedAt=SYSDATETIME()
+        WHEN NOT MATCHED THEN INSERT (Id, Code, Name, AreaName, SeatCount, PositionX, PositionY, Width, Height, Shape, SortOrder, IsActive) VALUES (@Id, @Code, @Name, @AreaName, @SeatCount, @PositionX, @PositionY, @Width, @Height, @Shape, @SortOrder, @IsActive);`);
+
+    await pool
+      .request()
+      .input('Id', sql.NVarChar(64), id)
+      .input('Code', sql.NVarChar(50), req.body.code || req.body.name)
+      .input('Name', sql.NVarChar(120), req.body.name || req.body.code)
+      .input('AreaName', sql.NVarChar(120), req.body.areaName || null)
+      .input('SeatCount', sql.Int, Number(req.body.seatCount || 4))
+      .input('PositionX', sql.Int, Number(req.body.positionX ?? req.body.PositionX ?? 0))
+      .input('PositionY', sql.Int, Number(req.body.positionY ?? req.body.PositionY ?? 0))
+      .input('Width', sql.Int, Number(req.body.width ?? req.body.Width ?? 130))
+      .input('Height', sql.Int, Number(req.body.height ?? req.body.Height ?? 100))
+      .input('Shape', sql.NVarChar(20), req.body.shape || req.body.Shape || 'RECT')
+      .query(`UPDATE p SET
+          Code=@Code, Name=@Name, AreaName=COALESCE(@AreaName, AreaName), Seats=@SeatCount,
+          PositionX=@PositionX, PositionY=@PositionY, Width=@Width, Height=@Height, Shape=@Shape,
+          LastModify=SYSDATETIME()
+        FROM dbo.PosTables p
+        JOIN dbo.ComPosTables c ON c.SourceGuid = CONVERT(NVARCHAR(64), p.Guid)
+        WHERE c.Id = @Id`);
     res.json({ success: true, data: { id } });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message || 'Không lưu được bàn.' });
+  }
+};
+
+export const updatePosTableLayout = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    const tables = Array.isArray(req.body.tables) ? req.body.tables : [];
+
+    for (const table of tables) {
+      await pool
+        .request()
+        .input('Id', sql.NVarChar(64), table.id || table.Id)
+        .input('PositionX', sql.Int, Number(table.positionX ?? table.PositionX ?? 0))
+        .input('PositionY', sql.Int, Number(table.positionY ?? table.PositionY ?? 0))
+        .input('Width', sql.Int, Number(table.width ?? table.Width ?? 130))
+        .input('Height', sql.Int, Number(table.height ?? table.Height ?? 100))
+        .input('Shape', sql.NVarChar(20), table.shape || table.Shape || 'RECT')
+        .query(`UPDATE dbo.ComPosTables
+          SET PositionX=@PositionX, PositionY=@PositionY, Width=@Width, Height=@Height, Shape=@Shape, UpdatedAt=SYSDATETIME()
+          WHERE Id=@Id;
+
+          UPDATE p SET
+            PositionX=@PositionX, PositionY=@PositionY, Width=@Width, Height=@Height, Shape=@Shape, LastModify=SYSDATETIME()
+          FROM dbo.PosTables p
+          JOIN dbo.ComPosTables c ON c.SourceGuid = CONVERT(NVARCHAR(64), p.Guid)
+          WHERE c.Id=@Id;`);
+    }
+
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Không lưu được sơ đồ bàn.' });
   }
 };
 

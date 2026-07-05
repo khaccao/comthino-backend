@@ -86,6 +86,7 @@ import {
   payPosOrder,
   updatePosOrder,
   updatePosOrderItem,
+  updatePosTableLayout,
   updatePrintTemplate,
   upsertPosMenuCategory,
   upsertPosMenuItem,
@@ -104,6 +105,7 @@ router.get('/dashboard', getDashboard);
 // POS
 router.get('/pos/bootstrap', getPosBootstrap);
 router.post('/pos/tables', upsertPosTable);
+router.put('/pos/tables/layout', updatePosTableLayout);
 router.put('/pos/tables/:id', upsertPosTable);
 router.post('/pos/menu-categories', upsertPosMenuCategory);
 router.put('/pos/menu-categories/:id', upsertPosMenuCategory);
