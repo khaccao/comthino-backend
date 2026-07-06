@@ -1,6 +1,5 @@
 import { Response } from 'express';
 import crypto from 'crypto';
-import prisma from '../config/prisma';
 import { getCaoPool, sql } from '../config/caoSql';
 import { AuthenticatedRequest } from '../middlewares/auth';
 
@@ -401,22 +400,18 @@ const seedFallbackPosData = async () => {
 
   const categoryCount = row<{ total: number }>((await pool.request().query('SELECT COUNT(1) AS total FROM dbo.ComPosMenuCategories')).recordset);
   if (!categoryCount?.total) {
-    const webCategories = await prisma.menuCategory.findMany({ orderBy: { displayOrder: 'asc' } });
-    for (const category of webCategories) {
-      await pool
-        .request()
-        .input('Id', sql.NVarChar(64), category.id)
-        .input('Name', sql.NVarChar(160), category.name)
-        .input('Description', sql.NVarChar(sql.MAX), category.description || null)
-        .input('SortOrder', sql.Int, category.displayOrder)
-        .input('IsActive', sql.Bit, category.isActive)
-        .query('INSERT INTO dbo.ComPosMenuCategories (Id, Name, Description, SortOrder, IsActive) VALUES (@Id, @Name, @Description, @SortOrder, @IsActive)');
-    }
+    await pool
+      .request()
+      .input('Id', sql.NVarChar(64), newId())
+      .input('Name', sql.NVarChar(160), 'Menu POS')
+      .input('Description', sql.NVarChar(sql.MAX), 'Danh muc POS mac dinh tren CaoConnection')
+      .query(`INSERT INTO dbo.ComPosMenuCategories (Id, Name, Description, SortOrder, IsActive, SourceTable)
+        VALUES (@Id, @Name, @Description, 1, 1, 'ComPosMenuCategories')`);
   }
 
   const itemCount = row<{ total: number }>((await pool.request().query('SELECT COUNT(1) AS total FROM dbo.ComPosMenuItems')).recordset);
   if (!itemCount?.total) {
-    const webItems = await prisma.menuItem.findMany({ orderBy: { displayOrder: 'asc' } });
+    const webItems: any[] = [];
     for (let index = 0; index < webItems.length; index += 1) {
       const item = webItems[index];
       await pool
@@ -1001,13 +996,14 @@ export const payPosOrder = async (req: AuthenticatedRequest, res: Response) => {
       res.status(404).json({ success: false, message: 'Không tìm thấy order.' });
       return;
     }
-    await pool
+    await recalculateOrder(req.params.id);
+    await withSqlRetry(() => pool
       .request()
       .input('Id', sql.NVarChar(64), req.params.id)
       .input('TableId', sql.NVarChar(64), order.TableId)
       .input('PaymentMethod', sql.NVarChar(40), req.body.paymentMethod || 'CASH')
       .query(`UPDATE dbo.ComPosOrders SET Status='PAID', PaymentMethod=@PaymentMethod, PaidAt=SYSDATETIME(), UpdatedAt=SYSDATETIME() WHERE Id=@Id;
-        UPDATE dbo.ComPosTables SET Status='AVAILABLE', UpdatedAt=SYSDATETIME() WHERE Id=@TableId;`);
+        UPDATE dbo.ComPosTables SET Status='AVAILABLE', UpdatedAt=SYSDATETIME() WHERE Id=@TableId;`));
     res.json({ success: true, data: await getOrderById(req.params.id) });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message || 'Không thanh toán được order.' });
