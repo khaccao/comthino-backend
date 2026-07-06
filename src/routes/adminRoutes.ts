@@ -84,6 +84,7 @@ import {
   getPosOrderDetail,
   openPosOrder,
   payPosOrder,
+  updatePosPaymentSetting,
   updatePosOrder,
   updatePosOrderItem,
   updatePosTableLayout,
@@ -121,6 +122,7 @@ router.delete('/pos/orders/:id/items/:itemId', deletePosOrderItem);
 router.post('/pos/orders/:id/confirm-kitchen', confirmKitchen);
 router.post('/pos/orders/:id/pay', payPosOrder);
 router.get('/pos/dashboard', getPosDashboard);
+router.put('/pos/payment-setting', updatePosPaymentSetting);
 router.put('/pos/print-templates/:code', updatePrintTemplate);
 
 // Site Settings (There's only 1 settings record, so GET & PUT are enough)

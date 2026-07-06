@@ -9,10 +9,27 @@ type Money = number | string | null | undefined;
 const toNumber = (value: Money) => Number(value || 0);
 const toBool = (value: unknown) => value === true || value === 'true' || value === 1 || value === '1';
 const newId = () => crypto.randomUUID();
+const defaultPaymentSetting = {
+  BankBin: '970407',
+  BankCode: 'TCB',
+  BankName: 'Techcombank',
+  AccountNo: '19035748277012',
+  AccountName: 'NGUYEN KHAC CAO',
+  QrTemplate: 'compact2',
+};
 
 const row = <T>(recordset: T[]) => recordset[0] || null;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const isDeadlock = (error: any) => error?.number === 1205 || /deadlock/i.test(error?.message || '');
+const cleanTransferInfo = (value = '') =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9 ._-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase()
+    .slice(0, 100);
 
 const withSqlRetry = async <T>(operation: () => Promise<T>, attempts = 3): Promise<T> => {
   let lastError: any;
@@ -113,6 +130,7 @@ BEGIN
     ServiceCharge DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrders_Service DEFAULT 0,
     VatAmount DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrders_Vat DEFAULT 0,
     TotalAmount DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrders_Total DEFAULT 0,
+    PaymentQrUrl NVARCHAR(1000) NULL,
     PaymentMethod NVARCHAR(40) NULL,
     KitchenPrintedAt DATETIME2 NULL,
     PaidAt DATETIME2 NULL,
@@ -153,6 +171,21 @@ BEGIN
   );
   CREATE UNIQUE INDEX UX_ComPosPrintTemplates_Code ON dbo.ComPosPrintTemplates(Code);
 END;
+
+IF OBJECT_ID(N'dbo.ComPosPaymentSettings', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.ComPosPaymentSettings (
+    Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+    BankBin NVARCHAR(20) NOT NULL,
+    BankCode NVARCHAR(50) NOT NULL,
+    BankName NVARCHAR(200) NOT NULL,
+    AccountNo NVARCHAR(80) NOT NULL,
+    AccountName NVARCHAR(200) NOT NULL,
+    QrTemplate NVARCHAR(50) NOT NULL CONSTRAINT DF_ComPosPaymentSettings_QrTemplate DEFAULT 'compact2',
+    IsActive BIT NOT NULL CONSTRAINT DF_ComPosPaymentSettings_IsActive DEFAULT 1,
+    UpdatedAt DATETIME2 NOT NULL CONSTRAINT DF_ComPosPaymentSettings_UpdatedAt DEFAULT SYSDATETIME()
+  );
+END;
 `);
 
   await pool.request().batch(`
@@ -167,12 +200,14 @@ IF COL_LENGTH('dbo.ComPosMenuCategories', 'SourceGuid') IS NULL ALTER TABLE dbo.
 IF COL_LENGTH('dbo.ComPosMenuCategories', 'SourceTable') IS NULL ALTER TABLE dbo.ComPosMenuCategories ADD SourceTable NVARCHAR(80) NULL;
 IF COL_LENGTH('dbo.ComPosMenuItems', 'SourceGuid') IS NULL ALTER TABLE dbo.ComPosMenuItems ADD SourceGuid NVARCHAR(64) NULL;
 IF COL_LENGTH('dbo.ComPosMenuItems', 'SourceTable') IS NULL ALTER TABLE dbo.ComPosMenuItems ADD SourceTable NVARCHAR(80) NULL;
+IF COL_LENGTH('dbo.ComPosOrders', 'PaymentQrUrl') IS NULL ALTER TABLE dbo.ComPosOrders ADD PaymentQrUrl NVARCHAR(1000) NULL;
 `);
 
   if (syncData) {
     await syncHotelPosData();
   }
   await seedFallbackPosData();
+  await seedPaymentSetting();
   schemaReadyAt = Date.now();
   }).finally(() => {
     schemaPromise = null;
@@ -418,6 +453,52 @@ const seedPrintTemplates = async (pool: sql.ConnectionPool) => {
   }
 };
 
+const seedPaymentSetting = async () => {
+  const pool = await getCaoPool();
+  await pool
+    .request()
+    .input('Id', sql.NVarChar(64), newId())
+    .input('BankBin', sql.NVarChar(20), defaultPaymentSetting.BankBin)
+    .input('BankCode', sql.NVarChar(50), defaultPaymentSetting.BankCode)
+    .input('BankName', sql.NVarChar(200), defaultPaymentSetting.BankName)
+    .input('AccountNo', sql.NVarChar(80), defaultPaymentSetting.AccountNo)
+    .input('AccountName', sql.NVarChar(200), defaultPaymentSetting.AccountName)
+    .input('QrTemplate', sql.NVarChar(50), defaultPaymentSetting.QrTemplate)
+    .query(`
+IF NOT EXISTS (SELECT 1 FROM dbo.ComPosPaymentSettings WHERE IsActive = 1)
+BEGIN
+  INSERT INTO dbo.ComPosPaymentSettings (Id, BankBin, BankCode, BankName, AccountNo, AccountName, QrTemplate)
+  VALUES (@Id, @BankBin, @BankCode, @BankName, @AccountNo, @AccountName, @QrTemplate);
+END;
+`);
+};
+
+const getPaymentSetting = async (pool?: sql.ConnectionPool | null) => {
+  const db = pool || (await getCaoPool());
+  const result = await db.request().query(`
+SELECT TOP 1 Id, BankBin, BankCode, BankName, AccountNo, AccountName, QrTemplate
+FROM dbo.ComPosPaymentSettings
+WHERE IsActive = 1
+ORDER BY UpdatedAt DESC
+`);
+  return row<any>(result.recordset) || { Id: null, ...defaultPaymentSetting };
+};
+
+const buildPaymentQrUrl = (setting: any, amount: number, orderNo: string) => {
+  const bankBin = String(setting?.BankBin || defaultPaymentSetting.BankBin).trim();
+  const accountNo = String(setting?.AccountNo || defaultPaymentSetting.AccountNo).replace(/\s+/g, '');
+  const accountName = String(setting?.AccountName || defaultPaymentSetting.AccountName).trim();
+  const template = String(setting?.QrTemplate || defaultPaymentSetting.QrTemplate).trim() || 'compact2';
+  const safeAmount = Math.max(0, Math.round(Number(amount || 0)));
+  if (!bankBin || !accountNo || safeAmount <= 0) return '';
+
+  const params = new URLSearchParams();
+  params.set('amount', String(safeAmount));
+  params.set('addInfo', cleanTransferInfo(orderNo || 'COMTHINO'));
+  if (accountName) params.set('accountName', accountName);
+  return `https://img.vietqr.io/image/${bankBin}-${accountNo}-${template}.jpg?${params.toString()}`;
+};
+
 const orderSelect = `
 SELECT o.*,
   (SELECT COUNT(1) FROM dbo.ComPosOrderItems i WHERE i.OrderId = o.Id) AS ItemCount
@@ -521,22 +602,26 @@ ORDER BY CreateDate ASC
 
 const recalculateOrder = async (orderId: string, discountAmount?: number) => {
   const pool = await getCaoPool();
-  const current = await pool.request().input('Id', sql.NVarChar(64), orderId).query('SELECT DiscountAmount FROM dbo.ComPosOrders WHERE Id = @Id');
-  const discount = discountAmount ?? toNumber(row<any>(current.recordset)?.DiscountAmount);
+  const current = await pool.request().input('Id', sql.NVarChar(64), orderId).query('SELECT OrderNo, DiscountAmount FROM dbo.ComPosOrders WHERE Id = @Id');
+  const orderInfo = row<any>(current.recordset);
+  const discount = discountAmount ?? toNumber(orderInfo?.DiscountAmount);
   const totalResult = await pool
     .request()
     .input('OrderId', sql.NVarChar(64), orderId)
     .query('SELECT SUM(UnitPrice * Quantity) AS SubTotal FROM dbo.ComPosOrderItems WHERE OrderId = @OrderId');
   const subTotal = toNumber(row<any>(totalResult.recordset)?.SubTotal);
   const totalAmount = Math.max(0, subTotal - discount);
+  const paymentSetting = await getPaymentSetting(pool);
+  const paymentQrUrl = buildPaymentQrUrl(paymentSetting, totalAmount, orderInfo?.OrderNo || orderId);
   await pool
     .request()
     .input('Id', sql.NVarChar(64), orderId)
     .input('SubTotal', sql.Decimal(18, 2), subTotal)
     .input('DiscountAmount', sql.Decimal(18, 2), discount)
     .input('TotalAmount', sql.Decimal(18, 2), totalAmount)
+    .input('PaymentQrUrl', sql.NVarChar(1000), paymentQrUrl || null)
     .query(`UPDATE dbo.ComPosOrders
-      SET SubTotal = @SubTotal, DiscountAmount = @DiscountAmount, TotalAmount = @TotalAmount, UpdatedAt = SYSDATETIME()
+      SET SubTotal = @SubTotal, DiscountAmount = @DiscountAmount, TotalAmount = @TotalAmount, PaymentQrUrl = @PaymentQrUrl, UpdatedAt = SYSDATETIME()
       WHERE Id = @Id`);
 
   await pool.request().input('Id', sql.NVarChar(64), orderId).query(`
@@ -574,12 +659,13 @@ export const getPosBootstrap = async (_req: AuthenticatedRequest, res: Response)
     await ensurePosSchema(true);
     const pool = await getCaoPool();
     await cleanupEmptyOpenOrders(pool);
-    const [tables, categories, items, openOrders, templates] = await Promise.all([
+    const [tables, categories, items, openOrders, templates, paymentSetting] = await Promise.all([
       pool.request().query('SELECT * FROM dbo.ComPosTables WHERE IsActive = 1 ORDER BY SortOrder, Name'),
       pool.request().query('SELECT * FROM dbo.ComPosMenuCategories WHERE IsActive = 1 ORDER BY SortOrder, Name'),
       pool.request().query('SELECT * FROM dbo.ComPosMenuItems WHERE IsActive = 1 ORDER BY SortOrder, Name'),
       pool.request().query(`${orderSelect} WHERE o.Status IN ('OPEN', 'ORDERED') AND (${activeOrderWhere}) ORDER BY o.CreatedAt DESC`),
       pool.request().query('SELECT Code, Name, Content, UpdatedAt FROM dbo.ComPosPrintTemplates ORDER BY Code'),
+      getPaymentSetting(pool),
     ]);
 
     res.json({
@@ -590,10 +676,52 @@ export const getPosBootstrap = async (_req: AuthenticatedRequest, res: Response)
         menuItems: items.recordset,
         openOrders: openOrders.recordset,
         templates: templates.recordset,
+        paymentSetting,
       },
     });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message || 'Không tải được POS.' });
+  }
+};
+
+export const updatePosPaymentSetting = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    const bankBin = String(req.body.bankBin || req.body.BankBin || '').trim();
+    const accountNo = String(req.body.accountNo || req.body.AccountNo || '').replace(/\s+/g, '');
+    const accountName = String(req.body.accountName || req.body.AccountName || '').trim();
+    if (!bankBin || !accountNo || !accountName) {
+      res.status(400).json({ success: false, message: 'Vui lòng nhập đủ Bank BIN, số tài khoản và tên tài khoản.' });
+      return;
+    }
+
+    await pool
+      .request()
+      .input('Id', sql.NVarChar(64), newId())
+      .input('BankBin', sql.NVarChar(20), bankBin)
+      .input('BankCode', sql.NVarChar(50), String(req.body.bankCode || req.body.BankCode || defaultPaymentSetting.BankCode).trim() || defaultPaymentSetting.BankCode)
+      .input('BankName', sql.NVarChar(200), String(req.body.bankName || req.body.BankName || defaultPaymentSetting.BankName).trim() || defaultPaymentSetting.BankName)
+      .input('AccountNo', sql.NVarChar(80), accountNo)
+      .input('AccountName', sql.NVarChar(200), accountName)
+      .input('QrTemplate', sql.NVarChar(50), String(req.body.qrTemplate || req.body.QrTemplate || defaultPaymentSetting.QrTemplate).trim() || defaultPaymentSetting.QrTemplate)
+      .query(`
+UPDATE dbo.ComPosPaymentSettings SET IsActive = 0, UpdatedAt = SYSDATETIME();
+INSERT INTO dbo.ComPosPaymentSettings (Id, BankBin, BankCode, BankName, AccountNo, AccountName, QrTemplate)
+VALUES (@Id, @BankBin, @BankCode, @BankName, @AccountNo, @AccountName, @QrTemplate);
+`);
+
+    const activeOrders = await pool.request().query(`
+SELECT Id FROM dbo.ComPosOrders
+WHERE Status IN ('OPEN','ORDERED') AND EXISTS (SELECT 1 FROM dbo.ComPosOrderItems i WHERE i.OrderId = ComPosOrders.Id)
+`);
+    for (const order of activeOrders.recordset) {
+      await recalculateOrder(order.Id);
+    }
+
+    res.json({ success: true, data: await getPaymentSetting(pool) });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Không lưu được cấu hình QR thanh toán.' });
   }
 };
 
