@@ -16,6 +16,14 @@ const defaultPaymentSetting = {
   AccountName: 'NGUYEN KHAC CAO',
   QrTemplate: 'compact2',
 };
+const defaultPaymentSettings = [
+  defaultPaymentSetting,
+  {
+    ...defaultPaymentSetting,
+    AccountNo: '246626',
+    AccountName: 'COM THI NO',
+  },
+];
 
 const row = <T>(recordset: T[]) => recordset[0] || null;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -450,33 +458,43 @@ const seedPrintTemplates = async (pool: sql.ConnectionPool) => {
 
 const seedPaymentSetting = async () => {
   const pool = await getCaoPool();
-  await pool
-    .request()
-    .input('Id', sql.NVarChar(64), newId())
-    .input('BankBin', sql.NVarChar(20), defaultPaymentSetting.BankBin)
-    .input('BankCode', sql.NVarChar(50), defaultPaymentSetting.BankCode)
-    .input('BankName', sql.NVarChar(200), defaultPaymentSetting.BankName)
-    .input('AccountNo', sql.NVarChar(80), defaultPaymentSetting.AccountNo)
-    .input('AccountName', sql.NVarChar(200), defaultPaymentSetting.AccountName)
-    .input('QrTemplate', sql.NVarChar(50), defaultPaymentSetting.QrTemplate)
-    .query(`
-IF NOT EXISTS (SELECT 1 FROM dbo.ComPosPaymentSettings WHERE IsActive = 1)
+  const active = row<{ total: number }>((await pool.request().query('SELECT COUNT(1) AS total FROM dbo.ComPosPaymentSettings WHERE IsActive = 1')).recordset);
+  for (let index = 0; index < defaultPaymentSettings.length; index += 1) {
+    const item = defaultPaymentSettings[index];
+    await pool
+      .request()
+      .input('Id', sql.NVarChar(64), newId())
+      .input('BankBin', sql.NVarChar(20), item.BankBin)
+      .input('BankCode', sql.NVarChar(50), item.BankCode)
+      .input('BankName', sql.NVarChar(200), item.BankName)
+      .input('AccountNo', sql.NVarChar(80), item.AccountNo)
+      .input('AccountName', sql.NVarChar(200), item.AccountName)
+      .input('QrTemplate', sql.NVarChar(50), item.QrTemplate)
+      .input('IsActive', sql.Bit, !active?.total && index === 0)
+      .query(`
+IF NOT EXISTS (SELECT 1 FROM dbo.ComPosPaymentSettings WHERE BankBin=@BankBin AND AccountNo=@AccountNo)
 BEGIN
-  INSERT INTO dbo.ComPosPaymentSettings (Id, BankBin, BankCode, BankName, AccountNo, AccountName, QrTemplate)
-  VALUES (@Id, @BankBin, @BankCode, @BankName, @AccountNo, @AccountName, @QrTemplate);
+  INSERT INTO dbo.ComPosPaymentSettings (Id, BankBin, BankCode, BankName, AccountNo, AccountName, QrTemplate, IsActive)
+  VALUES (@Id, @BankBin, @BankCode, @BankName, @AccountNo, @AccountName, @QrTemplate, @IsActive);
 END;
 `);
+  }
+};
+
+const getPaymentSettings = async (pool?: sql.ConnectionPool | null) => {
+  const db = pool || (await getCaoPool());
+  const result = await db.request().query(`
+SELECT Id, BankBin, BankCode, BankName, AccountNo, AccountName, QrTemplate, IsActive, UpdatedAt
+FROM dbo.ComPosPaymentSettings
+ORDER BY IsActive DESC, UpdatedAt DESC, BankName, AccountNo
+`);
+  return result.recordset;
 };
 
 const getPaymentSetting = async (pool?: sql.ConnectionPool | null) => {
   const db = pool || (await getCaoPool());
-  const result = await db.request().query(`
-SELECT TOP 1 Id, BankBin, BankCode, BankName, AccountNo, AccountName, QrTemplate
-FROM dbo.ComPosPaymentSettings
-WHERE IsActive = 1
-ORDER BY UpdatedAt DESC
-`);
-  return row<any>(result.recordset) || { Id: null, ...defaultPaymentSetting };
+  const settings = await getPaymentSettings(db);
+  return settings.find((item: any) => item.IsActive) || settings[0] || { Id: null, IsActive: true, ...defaultPaymentSetting };
 };
 
 const buildPaymentQrUrl = (setting: any, amount: number, orderNo: string) => {
@@ -654,13 +672,14 @@ export const getPosBootstrap = async (_req: AuthenticatedRequest, res: Response)
     await ensurePosSchema(true);
     const pool = await getCaoPool();
     await cleanupEmptyOpenOrders(pool);
-    const [tables, categories, items, openOrders, templates, paymentSetting] = await Promise.all([
+    const [tables, categories, items, openOrders, templates, paymentSetting, paymentSettings] = await Promise.all([
       pool.request().query('SELECT * FROM dbo.ComPosTables WHERE IsActive = 1 ORDER BY SortOrder, Name'),
       pool.request().query('SELECT * FROM dbo.ComPosMenuCategories WHERE IsActive = 1 ORDER BY SortOrder, Name'),
       pool.request().query('SELECT * FROM dbo.ComPosMenuItems WHERE IsActive = 1 ORDER BY SortOrder, Name'),
       pool.request().query(`${orderSelect} WHERE o.Status IN ('OPEN', 'ORDERED') AND (${activeOrderWhere}) ORDER BY o.CreatedAt DESC`),
       pool.request().query('SELECT Code, Name, Content, UpdatedAt FROM dbo.ComPosPrintTemplates ORDER BY Code'),
       getPaymentSetting(pool),
+      getPaymentSettings(pool),
     ]);
 
     res.json({
@@ -672,6 +691,7 @@ export const getPosBootstrap = async (_req: AuthenticatedRequest, res: Response)
         openOrders: openOrders.recordset,
         templates: templates.recordset,
         paymentSetting,
+        paymentSettings,
       },
     });
   } catch (error: any) {
@@ -693,7 +713,8 @@ export const updatePosPaymentSetting = async (req: AuthenticatedRequest, res: Re
 
     await pool
       .request()
-      .input('Id', sql.NVarChar(64), newId())
+      .input('Id', sql.NVarChar(64), String(req.body.id || req.body.Id || '').trim())
+      .input('NewId', sql.NVarChar(64), newId())
       .input('BankBin', sql.NVarChar(20), bankBin)
       .input('BankCode', sql.NVarChar(50), String(req.body.bankCode || req.body.BankCode || defaultPaymentSetting.BankCode).trim() || defaultPaymentSetting.BankCode)
       .input('BankName', sql.NVarChar(200), String(req.body.bankName || req.body.BankName || defaultPaymentSetting.BankName).trim() || defaultPaymentSetting.BankName)
@@ -701,9 +722,25 @@ export const updatePosPaymentSetting = async (req: AuthenticatedRequest, res: Re
       .input('AccountName', sql.NVarChar(200), accountName)
       .input('QrTemplate', sql.NVarChar(50), String(req.body.qrTemplate || req.body.QrTemplate || defaultPaymentSetting.QrTemplate).trim() || defaultPaymentSetting.QrTemplate)
       .query(`
+DECLARE @TargetId NVARCHAR(64) = NULLIF(@Id, '');
+IF @TargetId IS NULL
+BEGIN
+  SELECT TOP 1 @TargetId = Id FROM dbo.ComPosPaymentSettings WHERE BankBin=@BankBin AND AccountNo=@AccountNo;
+END;
+
 UPDATE dbo.ComPosPaymentSettings SET IsActive = 0, UpdatedAt = SYSDATETIME();
-INSERT INTO dbo.ComPosPaymentSettings (Id, BankBin, BankCode, BankName, AccountNo, AccountName, QrTemplate)
-VALUES (@Id, @BankBin, @BankCode, @BankName, @AccountNo, @AccountName, @QrTemplate);
+
+IF @TargetId IS NOT NULL
+BEGIN
+  UPDATE dbo.ComPosPaymentSettings
+  SET BankBin=@BankBin, BankCode=@BankCode, BankName=@BankName, AccountNo=@AccountNo, AccountName=@AccountName, QrTemplate=@QrTemplate, IsActive=1, UpdatedAt=SYSDATETIME()
+  WHERE Id=@TargetId;
+END
+ELSE
+BEGIN
+  INSERT INTO dbo.ComPosPaymentSettings (Id, BankBin, BankCode, BankName, AccountNo, AccountName, QrTemplate, IsActive)
+  VALUES (@NewId, @BankBin, @BankCode, @BankName, @AccountNo, @AccountName, @QrTemplate, 1);
+END;
 `);
 
     const activeOrders = await pool.request().query(`
@@ -714,7 +751,7 @@ WHERE Status IN ('OPEN','ORDERED') AND EXISTS (SELECT 1 FROM dbo.ComPosOrderItem
       await recalculateOrder(order.Id);
     }
 
-    res.json({ success: true, data: await getPaymentSetting(pool) });
+    res.json({ success: true, data: { paymentSetting: await getPaymentSetting(pool), paymentSettings: await getPaymentSettings(pool) } });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message || 'Không lưu được cấu hình QR thanh toán.' });
   }
