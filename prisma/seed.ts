@@ -19,13 +19,17 @@ async function main() {
 
   const admin = await prisma.user.upsert({
     where: { email: adminEmail },
-    update: {},
+    update: {
+      isSystemAdmin: true,
+      isActive: true,
+    },
     create: {
       fullName: 'Thị Nở Admin',
       email: adminEmail,
       passwordHash,
-      role: 'ADMIN',
+      role: 'SUPERADMIN',
       isActive: true,
+      isSystemAdmin: true,
     },
   });
   console.log(`- Created/Verified Admin User: ${admin.email}`);
@@ -394,6 +398,166 @@ async function main() {
     });
 
     console.log('- Created BlogCategories and BlogPosts');
+  }
+
+  // 11. Seed Roles and Permissions
+  console.log('- Seeding Roles and Permissions...');
+  const roles = [
+    { code: 'SUPERADMIN', name: 'Super Admin', description: 'Toàn quyền hệ thống', isSystemRole: true },
+    { code: 'OWNER', name: 'Chủ quán', description: 'Chủ cửa hàng cơm Thị Nở', isSystemRole: true },
+    { code: 'ACCOUNTANT', name: 'Kế toán', description: 'Kế toán thu chi, hạch toán', isSystemRole: true },
+    { code: 'MANAGER', name: 'Quản lý', description: 'Quản lý quán ăn', isSystemRole: true },
+    { code: 'CASHIER', name: 'Thu ngân', description: 'Nhân viên thu ngân trực quầy', isSystemRole: true },
+    { code: 'WAREHOUSE', name: 'Thủ kho', description: 'Quản lý kho vật tư, nguyên liệu', isSystemRole: true },
+    { code: 'PURCHASING', name: 'Mua hàng', description: 'Nhân viên mua sắm vật tư', isSystemRole: true },
+    { code: 'STAFF', name: 'Nhân viên', description: 'Nhân viên phục vụ thông thường', isSystemRole: true },
+  ];
+
+  for (const roleData of roles) {
+    await prisma.role.upsert({
+      where: { code: roleData.code },
+      update: { name: roleData.name, description: roleData.description },
+      create: roleData,
+    });
+  }
+
+  const permissions = [
+    { code: 'VIEW', name: 'Xem', description: 'Quyền xem danh sách, chi tiết' },
+    { code: 'CREATE', name: 'Thêm mới', description: 'Quyền thêm dữ liệu mới' },
+    { code: 'EDIT', name: 'Sửa', description: 'Quyền chỉnh sửa dữ liệu' },
+    { code: 'DELETE', name: 'Xóa', description: 'Quyền xóa dữ liệu' },
+    { code: 'APPROVE', name: 'Duyệt', description: 'Quyền duyệt đề nghị, phiếu' },
+    { code: 'EXPORT', name: 'Xuất Excel', description: 'Quyền xuất báo cáo Excel/PDF' },
+    { code: 'PRINT', name: 'In', description: 'Quyền in ấn chứng từ/hóa đơn' },
+    { code: 'IMPORT', name: 'Nhập Excel', description: 'Quyền nhập dữ liệu từ Excel' },
+    { code: 'CANCEL', name: 'Hủy', description: 'Quyền hủy giao dịch, chứng từ' },
+    { code: 'PAY', name: 'Giải ngân', description: 'Quyền thực hiện chi tiền mặt/bank' },
+    { code: 'POST_ACCOUNTING', name: 'Ghi sổ/Hạch toán', description: 'Quyền ghi sổ kế toán quỹ' },
+  ];
+
+  for (const permData of permissions) {
+    await prisma.permission.upsert({
+      where: { code: permData.code },
+      update: { name: permData.name, description: permData.description },
+      create: permData,
+    });
+  }
+
+  // 12. Seed Menus
+  console.log('- Seeding Menus...');
+  const menus = [
+    { code: 'DASHBOARD', name: 'Tổng quan', path: '/admin/dashboard', icon: 'LayoutDashboard', sortOrder: 1 },
+    { code: 'INVESTMENT', name: 'Quản lý vốn đầu tư', path: '/admin/investments', icon: 'Coins', sortOrder: 2 },
+    { code: 'PURCHASE_REQUEST', name: 'Đề nghị mua hàng', path: '/admin/purchase-requests', icon: 'FilePlus', sortOrder: 3 },
+    { code: 'PURCHASE_REQUEST_APPROVAL', name: 'Duyệt đề nghị mua hàng', path: '/admin/purchase-requests/approval', icon: 'CheckSquare', sortOrder: 4 },
+    { code: 'PURCHASE_ORDER', name: 'Đơn mua hàng', path: '/admin/purchase-orders', icon: 'ShoppingBag', sortOrder: 5 },
+    { code: 'INVENTORY_IMPORT', name: 'Nhập kho', path: '/admin/inventory/imports', icon: 'ArrowDownLeft', sortOrder: 6 },
+    { code: 'INVENTORY_EXPORT', name: 'Xuất kho', path: '/admin/inventory/exports', icon: 'ArrowUpRight', sortOrder: 7 },
+    { code: 'INVENTORY_STOCK', name: 'Tồn kho', path: '/admin/inventory/stock', icon: 'Package', sortOrder: 8 },
+    { code: 'MATERIAL_CATEGORY', name: 'Danh mục vật tư', path: '/admin/materials', icon: 'Layers', sortOrder: 9 },
+    { code: 'SUPPLIER_CATEGORY', name: 'Danh mục nhà cung cấp', path: '/admin/suppliers', icon: 'Truck', sortOrder: 10 },
+    { code: 'SUPPLIER_DEBT', name: 'Công nợ nhà cung cấp', path: '/admin/suppliers/debt', icon: 'Receipt', sortOrder: 11 },
+    { code: 'PAYMENT_REQUEST', name: 'Đề nghị chi', path: '/admin/payments/requests', icon: 'FileText', sortOrder: 12 },
+    { code: 'PAYMENT_REQUEST_APPROVAL', name: 'Duyệt đề nghị chi', path: '/admin/payments/approvals', icon: 'UserCheck', sortOrder: 13 },
+    { code: 'PAYMENT_VOUCHER', name: 'Phiếu chi', path: '/admin/payments/vouchers', icon: 'CreditCard', sortOrder: 14 },
+    { code: 'DISBURSEMENT', name: 'Giải ngân', path: '/admin/payments/disbursements', icon: 'DollarSign', sortOrder: 15 },
+    { code: 'CASH_BOOK', name: 'Sổ quỹ tiền mặt', path: '/admin/cash/book', icon: 'BookOpen', sortOrder: 16 },
+    { code: 'BANK_ACCOUNT', name: 'Tài khoản ngân hàng', path: '/admin/cash/bank-accounts', icon: 'Home', sortOrder: 17 },
+    { code: 'CASH_REPORT', name: 'Báo cáo thu chi', path: '/admin/reports/cash', icon: 'BarChart2', sortOrder: 18 },
+    { code: 'PROFIT_REPORT', name: 'Báo cáo lợi nhuận', path: '/admin/reports/profit', icon: 'TrendingUp', sortOrder: 19 },
+    { code: 'MENU_MANAGEMENT', name: 'Món ăn & Thực đơn', path: '/admin/menu-items', icon: 'Utensils', sortOrder: 20 },
+    { code: 'DISH_CATEGORY', name: 'Danh mục món ăn', path: '/admin/menu-categories', icon: 'Folder', sortOrder: 21 },
+    { code: 'COMBO_SET', name: 'Combo/set ăn', path: '/admin/combos', icon: 'Grid', sortOrder: 22 },
+    { code: 'DISH_PRICE', name: 'Giá bán món', path: '/admin/menu-items/prices', icon: 'Tag', sortOrder: 23 },
+    { code: 'TABLE_MANAGEMENT', name: 'Bàn & Phòng', path: '/admin/tables', icon: 'Grid3X3', sortOrder: 24 },
+    { code: 'ORDER_POS', name: 'POS bán hàng', path: '/admin/pos', icon: 'Monitor', sortOrder: 25 },
+    { code: 'STAFF_MANAGEMENT', name: 'Quản lý nhân viên', path: '/admin/staff', icon: 'Users2', sortOrder: 26 },
+    { code: 'CUSTOMER_MANAGEMENT', name: 'Quản lý khách hàng', path: '/admin/customers', icon: 'Heart', sortOrder: 27 },
+    { code: 'SYSTEM_CONFIG', name: 'Cấu hình hệ thống', path: '/admin/site-settings', icon: 'Sliders', sortOrder: 28 },
+    { code: 'USER_MANAGEMENT', name: 'Quản lý user', path: '/admin/users', icon: 'UserCog', sortOrder: 29 },
+    { code: 'ROLE_MANAGEMENT', name: 'Quản lý vai trò', path: '/admin/roles', icon: 'Shield', sortOrder: 30 },
+    { code: 'PERMISSION_MANAGEMENT', name: 'Quản lý quyền', path: '/admin/permissions', icon: 'Key', sortOrder: 31 },
+    { code: 'AUDIT_LOG', name: 'Nhật ký hệ thống', path: '/admin/audit-logs', icon: 'History', sortOrder: 32 },
+  ];
+
+  for (const m of menus) {
+    await prisma.menu.upsert({
+      where: { code: m.code },
+      update: { name: m.name, path: m.path, icon: m.icon, sortOrder: m.sortOrder },
+      create: m,
+    });
+  }
+
+  // 13. Map Superadmin Role to Admin User
+  const dbAdminUser = await prisma.user.findUnique({ where: { email: adminEmail } });
+  const superadminRole = await prisma.role.findUnique({ where: { code: 'SUPERADMIN' } });
+  if (superadminRole && dbAdminUser) {
+    await prisma.userRole.upsert({
+      where: {
+        userId_roleId: {
+          userId: dbAdminUser.id,
+          roleId: superadminRole.id,
+        },
+      },
+      update: {},
+      create: {
+        userId: dbAdminUser.id,
+        roleId: superadminRole.id,
+      },
+    });
+    console.log(`- Assigned SUPERADMIN role to ${dbAdminUser.email}`);
+  }
+
+  // 14. Seed Cash Payment Master Data
+  console.log('- Seeding Cash Payment Master Data...');
+  const expenseCategories = [
+    { code: 'CHI_NVL', name: 'Mua nguyên vật liệu', group: 'Giá vốn' },
+    { code: 'CHI_LUONG', name: 'Lương nhân viên', group: 'Nhân sự' },
+    { code: 'CHI_THUE_NHA', name: 'Thuê mặt bằng', group: 'Chi phí cố định' },
+    { code: 'CHI_DIEN_NUOC', name: 'Điện nước', group: 'Chi phí vận hành' },
+    { code: 'CHI_MARKETING', name: 'Quảng cáo', group: 'Bán hàng' },
+    { code: 'CHI_SHIP', name: 'Phí giao hàng', group: 'Bán hàng' },
+    { code: 'CHI_SUA_CHUA', name: 'Sửa chữa thiết bị', group: 'Vận hành' },
+    { code: 'CHI_MUA_CCDC', name: 'Mua công cụ dụng cụ', group: 'Tài sản/CCDC' },
+    { code: 'CHI_THUE', name: 'Thuế, phí, lệ phí', group: 'Thuế' },
+    { code: 'CHI_KHAC', name: 'Chi khác', group: 'Khác' },
+  ];
+
+  for (const ec of expenseCategories) {
+    await prisma.expenseCategory.upsert({
+      where: { code: ec.code },
+      update: { name: ec.name, group: ec.group },
+      create: ec,
+    });
+  }
+
+  const paymentMethods = [
+    { code: 'CASH', name: 'Tiền mặt' },
+    { code: 'BANK', name: 'Chuyển khoản' },
+    { code: 'CARD', name: 'Thẻ' },
+    { code: 'E_WALLET', name: 'Ví điện tử' },
+  ];
+
+  for (const pm of paymentMethods) {
+    await prisma.paymentMethod.upsert({
+      where: { code: pm.code },
+      update: { name: pm.name },
+      create: pm,
+    });
+  }
+
+  const cashAccounts = [
+    { code: 'QUY_TM', name: 'Quỹ tiền mặt', balance: 50000000 },
+    { code: 'NH_MB', name: 'Ngân hàng MB', balance: 120000000 },
+    { code: 'NH_TCB', name: 'Techcombank', balance: 80000000 },
+  ];
+
+  for (const ca of cashAccounts) {
+    await prisma.cashAccount.upsert({
+      where: { code: ca.code },
+      update: { name: ca.name, balance: ca.balance },
+      create: ca,
+    });
   }
 
   console.log('Seeding completed successfully!');

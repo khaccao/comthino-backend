@@ -8,14 +8,26 @@ generator client {
 }
 
 model User {
-  id           String   @id @default(uuid())
-  fullName     String
-  email        String   @unique
-  passwordHash String
-  role         String   @default("ADMIN")
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id            String     @id @default(uuid())
+  fullName      String
+  email         String     @unique
+  phone         String?
+  passwordHash  String
+  avatarUrl     String?
+  role          String     @default("ADMIN") // For fallback/compatibility
+  isActive      Boolean    @default(true)
+  isSystemAdmin Boolean    @default(false)
+  lastLoginAt   DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  createdBy     String?
+  updatedBy     String?
+
+  userRoles     UserRole[]
+  auditLogs     AuditLog[]
+  paymentRequests  PaymentRequest[]  @relation("Requester")
+  approvedRequests PaymentRequest[]  @relation("Approver")
+  createdVouchers  PaymentVoucher[]  @relation("VoucherCreator")
 
   @@map("Users")
 }
@@ -183,14 +195,21 @@ model MediaFile {
 }
 
 model AuditLog {
-  id        String   @id @default(uuid())
-  userId    String?
-  action    String
-  entity    String
-  entityId  String?
-  oldValue  String?  @db.NVarChar(MAX)
-  newValue  String?  @db.NVarChar(MAX)
-  createdAt DateTime @default(now())
+  id           String   @id @default(uuid())
+  userId       String?
+  action       String
+  entity       String?
+  entityName   String?
+  entityId     String?
+  oldValue     String?  @db.NVarChar(MAX)
+  newValue     String?  @db.NVarChar(MAX)
+  oldValueJson String?  @db.NVarChar(MAX)
+  newValueJson String?  @db.NVarChar(MAX)
+  ipAddress    String?
+  userAgent    String?  @db.NVarChar(MAX)
+  createdAt    DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@map("AuditLogs")
 }
@@ -288,4 +307,193 @@ model CustomerReview {
   createdAt    DateTime @default(now())
 
   @@map("CustomerReviews")
+}
+
+// User role management tables
+model Role {
+  id           String           @id @default(uuid())
+  code         String           @unique
+  name         String
+  description  String?          @db.NVarChar(MAX)
+  isSystemRole Boolean          @default(false)
+  isActive     Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@map("Roles")
+}
+
+model UserRole {
+  id        String   @id @default(uuid())
+  userId    String
+  roleId    String
+  createdAt DateTime @default(now())
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@map("UserRoles")
+}
+
+model Menu {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  path      String?
+  icon      String?
+  parentId  String?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  isVisible Boolean  @default(true)
+  
+  parent          Menu?            @relation("MenuToMenu", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children        Menu[]           @relation("MenuToMenu")
+  rolePermissions RolePermission[]
+
+  @@map("Menus")
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  description String?  @db.NVarChar(MAX)
+  
+  rolePermissions RolePermission[]
+
+  @@map("Permissions")
+}
+
+model RolePermission {
+  id           String   @id @default(uuid())
+  roleId       String
+  menuId       String
+  permissionId String
+  isAllowed    Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  menu       Menu       @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, menuId, permissionId])
+  @@map("RolePermissions")
+}
+
+// Payment/Expense management tables
+model ExpenseCategory {
+  id           String   @id @default(uuid())
+  code         String   @unique
+  name         String
+  group        String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  paymentRequests PaymentRequest[]
+  paymentVouchers PaymentVoucher[]
+
+  @@map("ExpenseCategories")
+}
+
+model PaymentMethod {
+  id           String   @id @default(uuid())
+  code         String   @unique
+  name         String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  paymentVouchers PaymentVoucher[]
+
+  @@map("PaymentMethods")
+}
+
+model CashAccount {
+  id           String   @id @default(uuid())
+  code         String   @unique
+  name         String
+  balance      Decimal  @default(0.0) @db.Decimal(18, 2)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  paymentVouchers PaymentVoucher[]
+
+  @@map("CashAccounts")
+}
+
+model Supplier {
+  id           String   @id @default(uuid())
+  name         String
+  phone        String?
+  taxCode      String?
+  address      String?
+  currentDebt  Decimal  @default(0.0) @db.Decimal(18, 2)
+  paymentTerm  String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  paymentRequests PaymentRequest[]
+
+  @@map("Suppliers")
+}
+
+model PaymentRequest {
+  id                String    @id @default(uuid())
+  code              String    @unique
+  requestDate       DateTime  @default(now())
+  requesterId       String
+  department        String
+  expenseCategoryId String
+  supplierId        String?
+  amount            Decimal   @db.Decimal(18, 2)
+  reason            String    @db.NVarChar(MAX)
+  attachmentUrl     String?   @db.NVarChar(MAX)
+  status            String    @default("PENDING") // DRAFT, PENDING, APPROVED, REJECTED, PAID, CANCELLED
+  approvedById      String?
+  approvedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  requester       User             @relation("Requester", fields: [requesterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  approver        User?            @relation("Approver", fields: [approvedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  expenseCategory ExpenseCategory  @relation(fields: [expenseCategoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  supplier        Supplier?        @relation(fields: [supplierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  paymentVouchers PaymentVoucher[]
+
+  @@map("PaymentRequests")
+}
+
+model PaymentVoucher {
+  id                String    @id @default(uuid())
+  code              String    @unique
+  paymentDate       DateTime  @default(now())
+  paymentRequestId  String?
+  recipientName     String
+  reason            String    @db.NVarChar(MAX)
+  amount            Decimal   @db.Decimal(18, 2)
+  paymentMethodId   String
+  cashAccountId     String
+  expenseCategoryId String
+  attachmentUrl     String?   @db.NVarChar(MAX)
+  notes             String?   @db.NVarChar(MAX)
+  status            String    @default("UNPOSTED") // UNPOSTED, POSTED (đối soát/ghi sổ)
+  createdById       String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  paymentRequest  PaymentRequest?  @relation(fields: [paymentRequestId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  paymentMethod   PaymentMethod    @relation(fields: [paymentMethodId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cashAccount     CashAccount      @relation(fields: [cashAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  expenseCategory ExpenseCategory  @relation(fields: [expenseCategoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  creator         User             @relation("VoucherCreator", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("PaymentVouchers")
 }

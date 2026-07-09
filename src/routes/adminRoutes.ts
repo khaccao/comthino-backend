@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticateJWT, requireAdmin } from '../middlewares/auth';
+import { authenticateJWT, requireAdmin, requirePermission } from '../middlewares/auth';
 import { upload } from '../middlewares/upload';
 import {
   getDashboard,
@@ -94,11 +94,57 @@ import {
   upsertPosTable,
 } from '../controllers/posAdminController';
 
+// Import New RBAC and Cash Payment controllers
+import {
+  getUsers,
+  getUserById,
+  createUser,
+  updateUser,
+  lockUser,
+  unlockUser,
+  deleteUser,
+  getUserRoles,
+  updateUserRoles,
+} from '../controllers/userController';
+import {
+  getRoles,
+  getRoleById,
+  createRole,
+  updateRole,
+  deleteRole,
+} from '../controllers/roleController';
+import {
+  getPermissions,
+  getRolePermissions,
+  updateRolePermissions,
+} from '../controllers/permissionController';
+import {
+  getMenus,
+} from '../controllers/menuController';
+import {
+  getPaymentMethods,
+  getPaymentRequests,
+  createPaymentRequest,
+  approvePaymentRequest,
+  deletePaymentRequest,
+  getPaymentVouchers,
+  createPaymentVoucher,
+  postPaymentVoucher,
+  deletePaymentVoucher,
+  getPaymentDashboard,
+  getExpenseCategories,
+  getCashAccounts,
+  getSuppliers,
+  createSupplier,
+  updateSupplier,
+  deleteSupplier,
+} from '../controllers/paymentController';
+import { getAuditLogs } from '../controllers/auditController';
+
 const router = Router();
 
-// Apply JWT Authentication and Admin Authorization to all admin routes
+// Apply JWT Authentication globally on admin router
 router.use(authenticateJWT);
-router.use(requireAdmin);
 
 // Dashboard
 router.get('/dashboard', getDashboard);
@@ -227,5 +273,59 @@ router.get('/reviews', getReviews);
 router.post('/reviews', createReview);
 router.put('/reviews/:id', updateReview);
 router.delete('/reviews/:id', deleteReview);
+
+// --- USER MANAGEMENT ENDPOINTS ---
+router.get('/users', requirePermission('USER_MANAGEMENT', 'VIEW'), getUsers);
+router.get('/users/:id', requirePermission('USER_MANAGEMENT', 'VIEW'), getUserById);
+router.post('/users', requirePermission('USER_MANAGEMENT', 'CREATE'), createUser);
+router.put('/users/:id', requirePermission('USER_MANAGEMENT', 'EDIT'), updateUser);
+router.patch('/users/:id/lock', requirePermission('USER_MANAGEMENT', 'EDIT'), lockUser);
+router.patch('/users/:id/unlock', requirePermission('USER_MANAGEMENT', 'EDIT'), unlockUser);
+router.delete('/users/:id', requirePermission('USER_MANAGEMENT', 'DELETE'), deleteUser);
+router.get('/users/:userId/roles', requirePermission('USER_MANAGEMENT', 'VIEW'), getUserRoles);
+router.put('/users/:userId/roles', requirePermission('USER_MANAGEMENT', 'EDIT'), updateUserRoles);
+
+// --- ROLE MANAGEMENT ENDPOINTS ---
+router.get('/roles', requirePermission('ROLE_MANAGEMENT', 'VIEW'), getRoles);
+router.get('/roles/:id', requirePermission('ROLE_MANAGEMENT', 'VIEW'), getRoleById);
+router.post('/roles', requirePermission('ROLE_MANAGEMENT', 'CREATE'), createRole);
+router.put('/roles/:id', requirePermission('ROLE_MANAGEMENT', 'EDIT'), updateRole);
+router.delete('/roles/:id', requirePermission('ROLE_MANAGEMENT', 'DELETE'), deleteRole);
+
+// --- PERMISSION MATRIX ENDPOINTS ---
+router.get('/permissions', requirePermission('PERMISSION_MANAGEMENT', 'VIEW'), getPermissions);
+router.get('/menus', requirePermission('PERMISSION_MANAGEMENT', 'VIEW'), getMenus);
+router.get('/roles/:roleId/permissions', requirePermission('PERMISSION_MANAGEMENT', 'VIEW'), getRolePermissions);
+router.put('/roles/:roleId/permissions', requirePermission('PERMISSION_MANAGEMENT', 'EDIT'), updateRolePermissions);
+
+// --- CASH PAYMENT MANAGEMENT WORKFLOW ---
+// Expense Categories, Payment Methods, Cash Accounts
+router.get('/payments/categories', getExpenseCategories); // selection helper, open for authenticated users
+router.get('/payments/methods', getPaymentMethods); // selection helper, open
+router.get('/payments/cash-accounts', requirePermission('BANK_ACCOUNT', 'VIEW'), getCashAccounts);
+
+// Suppliers
+router.get('/suppliers', requirePermission('SUPPLIER_CATEGORY', 'VIEW'), getSuppliers);
+router.post('/suppliers', requirePermission('SUPPLIER_CATEGORY', 'CREATE'), createSupplier);
+router.put('/suppliers/:id', requirePermission('SUPPLIER_CATEGORY', 'EDIT'), updateSupplier);
+router.delete('/suppliers/:id', requirePermission('SUPPLIER_CATEGORY', 'DELETE'), deleteSupplier);
+
+// Payment Requests
+router.get('/payments/requests', requirePermission('PAYMENT_REQUEST', 'VIEW'), getPaymentRequests);
+router.post('/payments/requests', requirePermission('PAYMENT_REQUEST', 'CREATE'), createPaymentRequest);
+router.patch('/payments/requests/:id/approve', requirePermission('PAYMENT_REQUEST_APPROVAL', 'APPROVE'), approvePaymentRequest);
+router.delete('/payments/requests/:id', requirePermission('PAYMENT_REQUEST', 'DELETE'), deletePaymentRequest);
+
+// Payment Vouchers
+router.get('/payments/vouchers', requirePermission('PAYMENT_VOUCHER', 'VIEW'), getPaymentVouchers);
+router.post('/payments/vouchers', requirePermission('PAYMENT_VOUCHER', 'CREATE'), createPaymentVoucher);
+router.post('/payments/vouchers/:id/post', requirePermission('PAYMENT_VOUCHER', 'POST_ACCOUNTING'), postPaymentVoucher);
+router.delete('/payments/vouchers/:id', requirePermission('PAYMENT_VOUCHER', 'DELETE'), deletePaymentVoucher);
+
+// Dashboard
+router.get('/payments/dashboard', requirePermission('CASH_BOOK', 'VIEW'), getPaymentDashboard);
+
+// System logs
+router.get('/audit-logs', requirePermission('AUDIT_LOG', 'VIEW'), getAuditLogs);
 
 export default router;
