@@ -28,6 +28,10 @@ const defaultPaymentSettings = [
 const row = <T>(recordset: T[]) => recordset[0] || null;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const isDeadlock = (error: any) => error?.number === 1205 || /deadlock/i.test(error?.message || '');
+const isUniqueKeyViolation = (error: any) =>
+  error?.number === 2601 ||
+  error?.number === 2627 ||
+  /duplicate key|unique index|unique constraint/i.test(error?.message || '');
 const cleanTransferInfo = (value = '') =>
   value
     .normalize('NFD')
@@ -661,8 +665,12 @@ const generateOrderNo = async () => {
   const prefix = `CTN${new Date().toISOString().slice(2, 10).replace(/-/g, '')}`;
   const result = await pool
     .request()
-    .input('Prefix', sql.NVarChar(20), `${prefix}%`)
-    .query('SELECT COUNT(1) + 1 AS NextNo FROM dbo.ComPosOrders WHERE OrderNo LIKE @Prefix');
+    .input('Prefix', sql.NVarChar(20), prefix)
+    .query(`
+SELECT ISNULL(MAX(TRY_CONVERT(INT, SUBSTRING(OrderNo, LEN(@Prefix) + 2, 20))), 0) + 1 AS NextNo
+FROM dbo.ComPosOrders
+WHERE OrderNo LIKE @Prefix + '-%';
+`);
   const nextNo = row<{ NextNo: number }>(result.recordset)?.NextNo || 1;
   return `${prefix}-${String(nextNo).padStart(3, '0')}`;
 };
@@ -909,16 +917,37 @@ export const openPosOrder = async (req: AuthenticatedRequest, res: Response) => 
       return;
     }
 
-    const orderId = newId();
-    const orderNo = await generateOrderNo();
-    await pool
-      .request()
-      .input('Id', sql.NVarChar(64), orderId)
-      .input('OrderNo', sql.NVarChar(60), orderNo)
-      .input('TableId', sql.NVarChar(64), table.Id)
-      .input('TableName', sql.NVarChar(120), table.Name)
-      .query(`INSERT INTO dbo.ComPosOrders (Id, OrderNo, TableId, TableName)
-        VALUES (@Id, @OrderNo, @TableId, @TableName);`);
+    let orderId = '';
+    let created = false;
+    let lastInsertError: any;
+
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      orderId = newId();
+      const orderNo = await generateOrderNo();
+
+      try {
+        await pool
+          .request()
+          .input('Id', sql.NVarChar(64), orderId)
+          .input('OrderNo', sql.NVarChar(60), orderNo)
+          .input('TableId', sql.NVarChar(64), table.Id)
+          .input('TableName', sql.NVarChar(120), table.Name)
+          .query(`INSERT INTO dbo.ComPosOrders (Id, OrderNo, TableId, TableName)
+            VALUES (@Id, @OrderNo, @TableId, @TableName);`);
+        created = true;
+        break;
+      } catch (error: any) {
+        lastInsertError = error;
+        if (!isUniqueKeyViolation(error)) {
+          throw error;
+        }
+        await sleep(80 * attempt);
+      }
+    }
+
+    if (!created) {
+      throw lastInsertError || new Error('Không tạo được số order POS.');
+    }
 
     res.status(201).json({ success: true, data: await getOrderById(orderId) });
   } catch (error: any) {
