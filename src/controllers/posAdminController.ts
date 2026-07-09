@@ -2,8 +2,9 @@ import { Response } from 'express';
 import crypto from 'crypto';
 import { getCaoPool, sql } from '../config/caoSql';
 import { AuthenticatedRequest } from '../middlewares/auth';
+import prisma from '../config/prisma';
 
-type Money = number | string | null | undefined;
+type Money = number | string | { toString(): string } | null | undefined;
 
 const toNumber = (value: Money) => Number(value || 0);
 const toBool = (value: unknown) => value === true || value === 'true' || value === 1 || value === '1';
@@ -41,6 +42,14 @@ const cleanTransferInfo = (value = '') =>
     .trim()
     .toUpperCase()
     .slice(0, 100);
+
+const normalizeMenuName = (value = '') =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
 
 const withSqlRetry = async <T>(operation: () => Promise<T>, attempts = 3): Promise<T> => {
   let lastError: any;
@@ -216,6 +225,7 @@ IF COL_LENGTH('dbo.ComPosOrders', 'PaymentQrUrl') IS NULL ALTER TABLE dbo.ComPos
 
   if (syncData) {
     await syncHotelPosData();
+    await syncWebMenuData();
   }
   await seedFallbackPosData();
   await seedPaymentSetting();
@@ -387,6 +397,137 @@ WHERE ISNULL(i.SourceTable, '') <> 'PosMenuItems';
   }
 
   await seedPrintTemplates(pool);
+};
+
+const syncWebMenuData = async () => {
+  const pool = await getCaoPool();
+  const categories = await prisma.menuCategory.findMany({
+    where: { isActive: true },
+    orderBy: { displayOrder: 'asc' },
+    include: {
+      menuItems: {
+        orderBy: { displayOrder: 'asc' },
+      },
+    },
+  });
+
+  if (categories.length === 0) return;
+
+  const existingCategoryRows = (await pool
+    .request()
+    .query('SELECT Id, Name, SourceGuid, SourceTable FROM dbo.ComPosMenuCategories')).recordset as any[];
+
+  const categoryByWebId = new Map<string, any>();
+  const categoryByName = new Map<string, any>();
+  existingCategoryRows.forEach((category) => {
+    if (category.SourceGuid) categoryByWebId.set(String(category.SourceGuid).toLowerCase(), category);
+    categoryByName.set(normalizeMenuName(category.Name || ''), category);
+  });
+
+  const webCategoryToPosCategory = new Map<string, string>();
+
+  for (const category of categories) {
+    const nameKey = normalizeMenuName(category.name);
+    const existingByWebId = categoryByWebId.get(category.id.toLowerCase());
+    const existingByName = categoryByName.get(nameKey);
+    const target = existingByWebId || existingByName;
+    const targetId = target?.Id || category.id;
+
+    if (target) {
+      await pool
+        .request()
+        .input('Id', sql.NVarChar(64), targetId)
+        .input('Name', sql.NVarChar(160), category.name)
+        .input('Description', sql.NVarChar(sql.MAX), category.description || target.Description || null)
+        .input('SortOrder', sql.Int, category.displayOrder)
+        .input('SourceGuid', sql.NVarChar(64), category.id)
+        .query(`
+UPDATE dbo.ComPosMenuCategories
+SET
+  Name = @Name,
+  Description = COALESCE(Description, @Description),
+  SortOrder = CASE WHEN ISNULL(SourceTable, '') = 'PosMenuCategories' THEN SortOrder ELSE @SortOrder END,
+  SourceGuid = CASE WHEN ISNULL(SourceTable, '') = 'PosMenuCategories' THEN SourceGuid ELSE @SourceGuid END,
+  SourceTable = CASE WHEN ISNULL(SourceTable, '') = 'PosMenuCategories' THEN SourceTable ELSE 'WebMenuCategories' END,
+  IsActive = 1,
+  UpdatedAt = SYSDATETIME()
+WHERE Id = @Id;
+`);
+    } else {
+      await pool
+        .request()
+        .input('Id', sql.NVarChar(64), targetId)
+        .input('Name', sql.NVarChar(160), category.name)
+        .input('Description', sql.NVarChar(sql.MAX), category.description || null)
+        .input('SortOrder', sql.Int, category.displayOrder)
+        .input('SourceGuid', sql.NVarChar(64), category.id)
+        .query(`
+INSERT INTO dbo.ComPosMenuCategories (Id, Name, Description, SortOrder, IsActive, SourceGuid, SourceTable)
+VALUES (@Id, @Name, @Description, @SortOrder, 1, @SourceGuid, 'WebMenuCategories');
+`);
+      categoryByName.set(nameKey, { Id: targetId, Name: category.name, SourceGuid: category.id, SourceTable: 'WebMenuCategories' });
+      categoryByWebId.set(category.id.toLowerCase(), { Id: targetId, Name: category.name, SourceGuid: category.id, SourceTable: 'WebMenuCategories' });
+    }
+
+    webCategoryToPosCategory.set(category.id, targetId);
+  }
+
+  const activePosRows = (await pool.request().query(`
+SELECT CategoryId, Name
+FROM dbo.ComPosMenuItems
+WHERE IsActive = 1 AND SourceTable = 'PosMenuItems';
+`)).recordset as any[];
+  const activePosNameKeys = new Set(
+    activePosRows.map((item) => `${item.CategoryId}|${normalizeMenuName(item.Name || '')}`),
+  );
+
+  let fallbackSortOrder = 500;
+  for (const category of categories) {
+    const categoryId = webCategoryToPosCategory.get(category.id);
+    if (!categoryId) continue;
+
+    for (const item of category.menuItems) {
+      const duplicatePosItem = activePosNameKeys.has(`${categoryId}|${normalizeMenuName(item.name)}`);
+      const isActive = Boolean(item.isAvailable && !duplicatePosItem);
+      const code = String(item.slug || `WEB-${item.id}`).slice(0, 80);
+      const sortOrder = Number.isFinite(item.displayOrder) ? item.displayOrder : fallbackSortOrder++;
+
+      await pool
+        .request()
+        .input('Id', sql.NVarChar(64), item.id)
+        .input('CategoryId', sql.NVarChar(64), categoryId)
+        .input('Code', sql.NVarChar(80), code)
+        .input('Name', sql.NVarChar(220), item.name)
+        .input('Unit', sql.NVarChar(40), 'món')
+        .input('Price', sql.Decimal(18, 2), toNumber(item.salePrice ?? item.price))
+        .input('ImageUrl', sql.NVarChar(sql.MAX), item.imageUrl || null)
+        .input('Description', sql.NVarChar(sql.MAX), item.shortDescription || item.description || null)
+        .input('SortOrder', sql.Int, sortOrder)
+        .input('IsActive', sql.Bit, isActive)
+        .input('SourceGuid', sql.NVarChar(64), item.id)
+        .query(`
+MERGE dbo.ComPosMenuItems AS target
+USING (SELECT @Id AS Id) AS source ON target.SourceGuid = source.Id OR target.Id = source.Id
+WHEN MATCHED THEN UPDATE SET
+  CategoryId = @CategoryId,
+  Code = @Code,
+  Name = @Name,
+  Unit = @Unit,
+  Price = @Price,
+  ImageUrl = @ImageUrl,
+  Description = @Description,
+  SortOrder = @SortOrder,
+  IsActive = @IsActive,
+  SourceGuid = @SourceGuid,
+  SourceTable = 'WebMenuItems',
+  UpdatedAt = SYSDATETIME()
+WHEN NOT MATCHED THEN INSERT
+  (Id, CategoryId, Code, Name, Unit, Price, ImageUrl, Description, SortOrder, IsActive, SourceGuid, SourceTable)
+  VALUES
+  (@Id, @CategoryId, @Code, @Name, @Unit, @Price, @ImageUrl, @Description, @SortOrder, @IsActive, @SourceGuid, 'WebMenuItems');
+`);
+    }
+  }
 };
 
 const seedFallbackPosData = async () => {
