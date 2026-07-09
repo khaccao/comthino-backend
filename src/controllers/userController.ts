@@ -25,6 +25,12 @@ const userUpdateSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
+const serializeUser = (user: any) => ({
+  ...user,
+  roles: (user.userRoles || []).map((item: any) => item.role.code),
+  roleNames: (user.userRoles || []).map((item: any) => item.role.name),
+});
+
 export const getUsers = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const users = await prisma.user.findMany({
@@ -48,7 +54,7 @@ export const getUsers = async (req: AuthenticatedRequest, res: Response) => {
       orderBy: { createdAt: 'desc' },
     });
 
-    res.json({ success: true, items: users });
+    res.json({ success: true, items: users.map(serializeUser) });
   } catch (error) {
     res.status(500).json({ message: 'Không thể tải danh sách người dùng.' });
   }
@@ -82,7 +88,7 @@ export const getUserById = async (req: AuthenticatedRequest, res: Response) => {
       return res.status(404).json({ message: 'Không tìm thấy người dùng.' });
     }
 
-    res.json({ success: true, user });
+    res.json({ success: true, user: serializeUser(user) });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi tải thông tin người dùng.' });
   }
@@ -98,6 +104,7 @@ export const createUser = async (req: AuthenticatedRequest, res: Response) => {
 
     const passwordHash = await bcrypt.hash(validated.password, 10);
     const createdBy = req.user?.email || 'System';
+    const roleCodes = validated.roles && validated.roles.length > 0 ? validated.roles : [validated.role || 'STAFF'];
 
     // 1. Create User
     const newUser = await prisma.user.create({
@@ -106,17 +113,17 @@ export const createUser = async (req: AuthenticatedRequest, res: Response) => {
         email: validated.email,
         phone: validated.phone,
         passwordHash,
-        role: validated.role,
+        role: roleCodes[0] || 'STAFF',
         avatarUrl: validated.avatarUrl,
         createdBy,
         updatedBy: createdBy,
       },
     });
 
-    // 2. Assign Roles if provided
-    if (validated.roles && validated.roles.length > 0) {
+    // 2. Assign Roles if provided. Default new accounts to STAFF.
+    if (roleCodes.length > 0) {
       const dbRoles = await prisma.role.findMany({
-        where: { code: { in: validated.roles } },
+        where: { code: { in: roleCodes }, isActive: true },
       });
 
       const userRoleData = dbRoles.map((role) => ({
@@ -163,6 +170,11 @@ export const updateUser = async (req: AuthenticatedRequest, res: Response) => {
     }
 
     const dataToUpdate: any = {};
+    if (validated.email !== undefined && validated.email !== user.email) {
+      const duplicated = await prisma.user.findUnique({ where: { email: validated.email } });
+      if (duplicated) return res.status(400).json({ message: 'Email đã được sử dụng.' });
+      dataToUpdate.email = validated.email;
+    }
     if (validated.fullName !== undefined) dataToUpdate.fullName = validated.fullName;
     if (validated.phone !== undefined) dataToUpdate.phone = validated.phone;
     if (validated.avatarUrl !== undefined) dataToUpdate.avatarUrl = validated.avatarUrl;
@@ -205,6 +217,13 @@ export const updateUser = async (req: AuthenticatedRequest, res: Response) => {
       }));
 
       await prisma.userRole.createMany({ data: userRoleData });
+
+      if (!user.isSystemAdmin) {
+        await prisma.user.update({
+          where: { id },
+          data: { role: validated.roles[0] || 'STAFF' },
+        });
+      }
     }
 
     // Write audit log
@@ -356,6 +375,13 @@ export const updateUserRoles = async (req: AuthenticatedRequest, res: Response) 
     }));
 
     await prisma.userRole.createMany({ data: userRoleData });
+
+    if (!user.isSystemAdmin) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { role: roles[0] || 'STAFF', updatedBy: req.user?.email || 'System' },
+      });
+    }
 
     res.json({ success: true, message: 'Cập nhật vai trò người dùng thành công.' });
   } catch (error) {

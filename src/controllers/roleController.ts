@@ -15,7 +15,13 @@ export const getRoles = async (req: AuthenticatedRequest, res: Response) => {
     const roles = await prisma.role.findMany({
       orderBy: { code: 'asc' },
     });
-    res.json({ success: true, items: roles });
+    res.json({
+      success: true,
+      items: roles.map((role) => ({
+        ...role,
+        isSystem: role.isSystemRole,
+      })),
+    });
   } catch (error) {
     res.status(500).json({ message: 'Không thể tải danh sách vai trò.' });
   }

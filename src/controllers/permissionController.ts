@@ -25,9 +25,20 @@ export const getRolePermissions = async (req: Request, res: Response) => {
 
     const rolePermissions = await prisma.rolePermission.findMany({
       where: { roleId },
+      include: {
+        menu: true,
+        permission: true,
+      },
     });
 
-    res.json({ success: true, items: rolePermissions });
+    res.json({
+      success: true,
+      items: rolePermissions.map((item) => ({
+        ...item,
+        menuCode: item.menu.code,
+        permissionCode: item.permission.code,
+      })),
+    });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi tải quyền hạn của vai trò.' });
   }
@@ -35,9 +46,11 @@ export const getRolePermissions = async (req: Request, res: Response) => {
 
 const permissionMatrixSchema = z.object({
   permissions: z.array(z.object({
-    menuId: z.string(),
-    permissionId: z.string(),
-    isAllowed: z.boolean(),
+    menuId: z.string().optional(),
+    permissionId: z.string().optional(),
+    menuCode: z.string().optional(),
+    permissionCode: z.string().optional(),
+    isAllowed: z.boolean().optional().default(true),
   })),
 });
 
@@ -64,12 +77,24 @@ export const updateRolePermissions = async (req: AuthenticatedRequest, res: Resp
 
       // 2. Create new permissions
       if (validated.permissions.length > 0) {
-        const data = validated.permissions.map((p) => ({
+        const menus = await tx.menu.findMany();
+        const permissions = await tx.permission.findMany();
+        const menuByCode = new Map(menus.map((menu) => [menu.code, menu]));
+        const permissionByCode = new Map(permissions.map((permission) => [permission.code, permission]));
+
+        const data = validated.permissions.map((p) => {
+          const menuId = p.menuId || (p.menuCode ? menuByCode.get(p.menuCode)?.id : undefined);
+          const permissionId = p.permissionId || (p.permissionCode ? permissionByCode.get(p.permissionCode)?.id : undefined);
+          if (!menuId || !permissionId) {
+            throw new Error('Dữ liệu menu/quyền không hợp lệ.');
+          }
+          return {
           roleId,
-          menuId: p.menuId,
-          permissionId: p.permissionId,
+          menuId,
+          permissionId,
           isAllowed: p.isAllowed,
-        }));
+        };
+        });
 
         await tx.rolePermission.createMany({ data });
       }

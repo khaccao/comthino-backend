@@ -407,6 +407,7 @@ async function main() {
     { code: 'OWNER', name: 'Chủ quán', description: 'Chủ cửa hàng cơm Thị Nở', isSystemRole: true },
     { code: 'ACCOUNTANT', name: 'Kế toán', description: 'Kế toán thu chi, hạch toán', isSystemRole: true },
     { code: 'MANAGER', name: 'Quản lý', description: 'Quản lý quán ăn', isSystemRole: true },
+    { code: 'KITCHEN', name: 'Bếp', description: 'Tài khoản bếp theo dõi order POS', isSystemRole: true },
     { code: 'CASHIER', name: 'Thu ngân', description: 'Nhân viên thu ngân trực quầy', isSystemRole: true },
     { code: 'WAREHOUSE', name: 'Thủ kho', description: 'Quản lý kho vật tư, nguyên liệu', isSystemRole: true },
     { code: 'PURCHASING', name: 'Mua hàng', description: 'Nhân viên mua sắm vật tư', isSystemRole: true },
@@ -507,6 +508,114 @@ async function main() {
     });
     console.log(`- Assigned SUPERADMIN role to ${dbAdminUser.email}`);
   }
+
+  const grantRolePermissions = async (roleCode: string, grants: Record<string, string[]>) => {
+    const role = await prisma.role.findUnique({ where: { code: roleCode } });
+    if (!role) return;
+
+    for (const [menuCode, permissionCodes] of Object.entries(grants)) {
+      const menu = await prisma.menu.findUnique({ where: { code: menuCode } });
+      if (!menu) continue;
+
+      const dbPermissions = await prisma.permission.findMany({
+        where: { code: { in: permissionCodes } },
+      });
+
+      for (const permission of dbPermissions) {
+        await prisma.rolePermission.upsert({
+          where: {
+            roleId_menuId_permissionId: {
+              roleId: role.id,
+              menuId: menu.id,
+              permissionId: permission.id,
+            },
+          },
+          update: { isAllowed: true },
+          create: {
+            roleId: role.id,
+            menuId: menu.id,
+            permissionId: permission.id,
+            isAllowed: true,
+          },
+        });
+      }
+    }
+  };
+
+  const view = ['VIEW'];
+  const entry = ['VIEW', 'CREATE'];
+  const maintain = ['VIEW', 'CREATE', 'EDIT', 'DELETE'];
+  const approve = ['VIEW', 'APPROVE'];
+  const finance = ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'PAY', 'POST_ACCOUNTING', 'PRINT', 'EXPORT'];
+  const pos = ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'PRINT', 'PAY', 'CANCEL'];
+
+  await grantRolePermissions('KITCHEN', {
+    DASHBOARD: view,
+    ORDER_POS: view,
+  });
+
+  await grantRolePermissions('STAFF', {
+    DASHBOARD: view,
+    PAYMENT_REQUEST: entry,
+    SUPPLIER_CATEGORY: view,
+  });
+
+  await grantRolePermissions('CASHIER', {
+    DASHBOARD: view,
+    ORDER_POS: pos,
+    PAYMENT_REQUEST: entry,
+    SUPPLIER_CATEGORY: view,
+  });
+
+  await grantRolePermissions('MANAGER', {
+    DASHBOARD: view,
+    ORDER_POS: pos,
+    TABLE_MANAGEMENT: maintain,
+    MENU_MANAGEMENT: maintain,
+    DISH_CATEGORY: maintain,
+    PAYMENT_REQUEST: maintain,
+    PAYMENT_REQUEST_APPROVAL: approve,
+    PAYMENT_VOUCHER: ['VIEW', 'CREATE', 'PRINT'],
+    CASH_BOOK: view,
+    BANK_ACCOUNT: view,
+    CASH_REPORT: view,
+    PROFIT_REPORT: view,
+    SUPPLIER_CATEGORY: maintain,
+  });
+
+  await grantRolePermissions('ACCOUNTANT', {
+    DASHBOARD: view,
+    PAYMENT_REQUEST: maintain,
+    PAYMENT_REQUEST_APPROVAL: approve,
+    PAYMENT_VOUCHER: finance,
+    DISBURSEMENT: finance,
+    CASH_BOOK: view,
+    BANK_ACCOUNT: view,
+    CASH_REPORT: view,
+    PROFIT_REPORT: view,
+    SUPPLIER_CATEGORY: maintain,
+    SUPPLIER_DEBT: view,
+  });
+
+  await grantRolePermissions('OWNER', {
+    DASHBOARD: view,
+    ORDER_POS: pos,
+    PAYMENT_REQUEST: maintain,
+    PAYMENT_REQUEST_APPROVAL: approve,
+    PAYMENT_VOUCHER: finance,
+    CASH_BOOK: view,
+    BANK_ACCOUNT: view,
+    CASH_REPORT: view,
+    PROFIT_REPORT: view,
+    USER_MANAGEMENT: maintain,
+    ROLE_MANAGEMENT: maintain,
+    PERMISSION_MANAGEMENT: maintain,
+    AUDIT_LOG: view,
+    SYSTEM_CONFIG: maintain,
+    SUPPLIER_CATEGORY: maintain,
+    MENU_MANAGEMENT: maintain,
+    DISH_CATEGORY: maintain,
+  });
 
   // 14. Seed Cash Payment Master Data
   console.log('- Seeding Cash Payment Master Data...');
