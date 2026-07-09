@@ -302,7 +302,7 @@ router.put('/roles/:roleId/permissions', requirePermission('PERMISSION_MANAGEMEN
 // Expense Categories, Payment Methods, Cash Accounts
 router.get('/payments/categories', getExpenseCategories); // selection helper, open for authenticated users
 router.get('/payments/methods', getPaymentMethods); // selection helper, open
-router.get('/payments/cash-accounts', requirePermission('BANK_ACCOUNT', 'VIEW'), getCashAccounts);
+router.get('/payments/cash-accounts', getCashAccounts); // selection helper for payment vouchers
 
 // Suppliers
 router.get('/suppliers', requirePermission('SUPPLIER_CATEGORY', 'VIEW'), getSuppliers);

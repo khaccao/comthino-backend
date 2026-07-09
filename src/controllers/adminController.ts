@@ -2,6 +2,88 @@ import { Response } from 'express';
 import prisma from '../config/prisma';
 import { AuthenticatedRequest } from '../middlewares/auth';
 import { logAudit } from '../utils/auditLogger';
+import { getCaoPool, sql } from '../config/caoSql';
+
+const money = (value: any) => Number(value || 0);
+const vietnamDate = (date = new Date()) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(date);
+const dateFromVietnamDay = (date: string, endOfDay = false) =>
+  new Date(`${date}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}+07:00`);
+
+const getPosBusinessSnapshot = async () => {
+  const today = vietnamDate();
+  const pool = await getCaoPool();
+  const result = await pool.request().input('Date', sql.NVarChar(10), today).query(`
+DECLARE @WorkDate DATE = TRY_CONVERT(DATE, @Date, 23);
+DECLARE @StartDate DATE = DATEADD(DAY, -6, @WorkDate);
+DECLARE @MonthStart DATE = DATEFROMPARTS(YEAR(@WorkDate), MONTH(@WorkDate), 1);
+DECLARE @AllOrders TABLE (
+  Id NVARCHAR(64) NOT NULL,
+  OrderNo NVARCHAR(80) NULL,
+  Status NVARCHAR(30) NULL,
+  TotalAmount DECIMAL(18,2) NOT NULL,
+  DiscountAmount DECIMAL(18,2) NOT NULL,
+  CreatedAt DATETIME2 NULL,
+  PaidAt DATETIME2 NULL
+);
+
+IF OBJECT_ID(N'dbo.ComPosOrders', N'U') IS NOT NULL
+BEGIN
+  INSERT INTO @AllOrders (Id, OrderNo, Status, TotalAmount, DiscountAmount, CreatedAt, PaidAt)
+  SELECT Id, OrderNo, UPPER(Status), ISNULL(TotalAmount, 0), ISNULL(DiscountAmount, 0), CreatedAt, PaidAt
+  FROM dbo.ComPosOrders WITH (READPAST);
+END
+
+IF OBJECT_ID(N'dbo.PosOrders', N'U') IS NOT NULL
+BEGIN
+  INSERT INTO @AllOrders (Id, OrderNo, Status, TotalAmount, DiscountAmount, CreatedAt, PaidAt)
+  SELECT CONVERT(NVARCHAR(64), Guid), OrderNo, UPPER(Status), ISNULL(TotalAmount, 0), ISNULL(DiscountAmount, 0), CreateDate, PaidAt
+  FROM dbo.PosOrders WITH (READPAST);
+END
+
+SELECT
+  ISNULL(SUM(CASE WHEN Status='PAID' AND CAST(PaidAt AS DATE)=@WorkDate THEN TotalAmount ELSE 0 END), 0) AS RevenueToday,
+  ISNULL(SUM(CASE WHEN Status='PAID' AND CAST(PaidAt AS DATE)>=@MonthStart AND CAST(PaidAt AS DATE)<=@WorkDate THEN TotalAmount ELSE 0 END), 0) AS RevenueMonth,
+  COUNT(CASE WHEN Status='PAID' AND CAST(PaidAt AS DATE)=@WorkDate THEN 1 END) AS PaidOrdersToday,
+  COUNT(CASE WHEN Status NOT IN ('PAID','CANCELLED') AND CAST(CreatedAt AS DATE)=@WorkDate THEN 1 END) AS OpenOrdersToday,
+  ISNULL(AVG(CASE WHEN Status='PAID' AND CAST(PaidAt AS DATE)=@WorkDate THEN TotalAmount END), 0) AS AverageBillToday,
+  ISNULL(SUM(CASE WHEN Status='PAID' AND CAST(PaidAt AS DATE)=@WorkDate THEN DiscountAmount ELSE 0 END), 0) AS DiscountToday
+FROM @AllOrders;
+
+SELECT TOP 8 OrderNo, Status, TotalAmount, PaidAt, CreatedAt
+FROM @AllOrders
+WHERE (Status='PAID' AND CAST(PaidAt AS DATE)=@WorkDate)
+   OR (Status<>'PAID' AND CAST(CreatedAt AS DATE)=@WorkDate)
+ORDER BY COALESCE(PaidAt, CreatedAt) DESC;
+
+SELECT CONVERT(NVARCHAR(10), CAST(PaidAt AS DATE), 23) AS WorkDate, SUM(TotalAmount) AS Revenue, COUNT(1) AS Orders
+FROM @AllOrders
+WHERE Status='PAID' AND CAST(PaidAt AS DATE) BETWEEN @StartDate AND @WorkDate
+GROUP BY CAST(PaidAt AS DATE)
+ORDER BY WorkDate;
+`);
+  const recordsets = result.recordsets as sql.IRecordSet<any>[];
+  const summary = recordsets[0]?.[0] || {};
+
+  return {
+    summary: {
+      revenueToday: money(summary.RevenueToday),
+      revenueMonth: money(summary.RevenueMonth),
+      paidOrdersToday: Number(summary.PaidOrdersToday || 0),
+      openOrdersToday: Number(summary.OpenOrdersToday || 0),
+      averageBillToday: money(summary.AverageBillToday),
+      discountToday: money(summary.DiscountToday),
+    },
+    recentOrders: (recordsets[1] || []).map((item: any) => ({
+      orderNo: item.OrderNo,
+      status: item.Status,
+      totalAmount: money(item.TotalAmount),
+      paidAt: item.PaidAt,
+      createdAt: item.CreatedAt,
+    })),
+    dailyRevenue: recordsets[2] || [],
+  };
+};
 
 // --- Dashboard ---
 export const getDashboard = async (req: AuthenticatedRequest, res: Response) => {
@@ -25,6 +107,105 @@ export const getDashboard = async (req: AuthenticatedRequest, res: Response) => 
     const visibleItems = await prisma.menuItem.count({ where: { isAvailable: true } });
     const hiddenItems = await prisma.menuItem.count({ where: { isAvailable: false } });
 
+    const today = vietnamDate();
+    const todayStart = dateFromVietnamDay(today);
+    const todayEnd = dateFromVietnamDay(today, true);
+    const monthStart = dateFromVietnamDay(`${today.slice(0, 7)}-01`);
+
+    const [
+      todayExpenses,
+      monthExpenses,
+      pendingRequestsCount,
+      approvedRequestsCount,
+      unpostedVouchersCount,
+      supplierDebt,
+      recentRequests,
+      recentVouchers,
+      postedVouchers,
+    ] = await Promise.all([
+      prisma.paymentVoucher.aggregate({
+        where: { status: 'POSTED', paymentDate: { gte: todayStart, lte: todayEnd } },
+        _sum: { amount: true },
+      }),
+      prisma.paymentVoucher.aggregate({
+        where: { status: 'POSTED', paymentDate: { gte: monthStart } },
+        _sum: { amount: true },
+      }),
+      prisma.paymentRequest.count({ where: { status: 'PENDING' } }),
+      prisma.paymentRequest.count({ where: { status: 'APPROVED' } }),
+      prisma.paymentVoucher.count({ where: { status: 'UNPOSTED' } }),
+      prisma.supplier.aggregate({ where: { isActive: true }, _sum: { currentDebt: true } }),
+      prisma.paymentRequest.findMany({
+        take: 6,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          requester: { select: { fullName: true } },
+          expenseCategory: true,
+          supplier: true,
+        },
+      }),
+      prisma.paymentVoucher.findMany({
+        take: 6,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          expenseCategory: true,
+          cashAccount: true,
+        },
+      }),
+      prisma.paymentVoucher.findMany({
+        where: { status: 'POSTED', paymentDate: { gte: new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000) } },
+        include: { expenseCategory: true },
+      }),
+    ]);
+
+    let posSnapshot = {
+      summary: {
+        revenueToday: 0,
+        revenueMonth: 0,
+        paidOrdersToday: 0,
+        openOrdersToday: 0,
+        averageBillToday: 0,
+        discountToday: 0,
+      },
+      recentOrders: [] as any[],
+      dailyRevenue: [] as any[],
+      error: null as string | null,
+    };
+
+    try {
+      posSnapshot = { ...posSnapshot, ...(await getPosBusinessSnapshot()) };
+    } catch (error: any) {
+      posSnapshot.error = error.message || 'Không đọc được dữ liệu POS từ CaoConnection.';
+    }
+
+    const todayExpenseValue = money(todayExpenses._sum.amount);
+    const monthExpenseValue = money(monthExpenses._sum.amount);
+    const todayProfit = posSnapshot.summary.revenueToday - todayExpenseValue;
+    const monthProfit = posSnapshot.summary.revenueMonth - monthExpenseValue;
+
+    const dailyMap = new Map<string, { date: string; revenue: number; expense: number; profit: number; orders: number }>();
+    for (let i = 6; i >= 0; i -= 1) {
+      const d = new Date(todayStart.getTime() - i * 24 * 60 * 60 * 1000);
+      const key = vietnamDate(d);
+      dailyMap.set(key, { date: key, revenue: 0, expense: 0, profit: 0, orders: 0 });
+    }
+    posSnapshot.dailyRevenue.forEach((item: any) => {
+      const key = item.WorkDate || item.workDate;
+      const row = dailyMap.get(key);
+      if (row) {
+        row.revenue = money(item.Revenue);
+        row.orders = Number(item.Orders || 0);
+      }
+    });
+    postedVouchers.forEach((item) => {
+      const key = vietnamDate(item.paymentDate);
+      const row = dailyMap.get(key);
+      if (row) row.expense += money(item.amount);
+    });
+    dailyMap.forEach((row) => {
+      row.profit = row.revenue - row.expense;
+    });
+
     // Recent activity (audit logs)
     const recentLogs = await prisma.auditLog.findMany({
       take: 5,
@@ -41,6 +222,37 @@ export const getDashboard = async (req: AuthenticatedRequest, res: Response) => 
         visibleItems,
         hiddenItems,
         recentLogs,
+        business: {
+          date: today,
+          revenueToday: posSnapshot.summary.revenueToday,
+          revenueMonth: posSnapshot.summary.revenueMonth,
+          expenseToday: todayExpenseValue,
+          expenseMonth: monthExpenseValue,
+          profitToday: todayProfit,
+          profitMonth: monthProfit,
+          profitMarginToday: posSnapshot.summary.revenueToday > 0 ? (todayProfit / posSnapshot.summary.revenueToday) * 100 : 0,
+          paidOrdersToday: posSnapshot.summary.paidOrdersToday,
+          openOrdersToday: posSnapshot.summary.openOrdersToday,
+          averageBillToday: posSnapshot.summary.averageBillToday,
+          discountToday: posSnapshot.summary.discountToday,
+          pendingRequestsCount,
+          approvedRequestsCount,
+          unpostedVouchersCount,
+          supplierDebt: money(supplierDebt._sum.currentDebt),
+          posError: posSnapshot.error,
+          recentOrders: posSnapshot.recentOrders,
+          recentRequests: recentRequests.map((item: any) => ({
+            ...item,
+            amount: money(item.amount),
+            category: item.expenseCategory,
+          })),
+          recentVouchers: recentVouchers.map((item: any) => ({
+            ...item,
+            amount: money(item.amount),
+            category: item.expenseCategory,
+          })),
+          daily: Array.from(dailyMap.values()),
+        },
       },
     });
   } catch (error) {
@@ -874,4 +1086,3 @@ export const deleteMedia = async (req: AuthenticatedRequest, res: Response) => {
     res.status(500).json({ success: false, message: 'Lỗi xóa tệp media.' });
   }
 };
-

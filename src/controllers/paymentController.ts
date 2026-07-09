@@ -34,6 +34,43 @@ const paymentVoucherSchema = z.object({
   notes: z.string().optional().nullable(),
 });
 
+const normalizePaymentRequestBody = (body: any) => ({
+  ...body,
+  expenseCategoryId: body.expenseCategoryId || body.categoryId,
+});
+
+const normalizePaymentVoucherBody = (body: any) => ({
+  ...body,
+  paymentRequestId: body.paymentRequestId || body.requestId || undefined,
+  recipientName: body.recipientName || body.receiverName,
+  expenseCategoryId: body.expenseCategoryId || body.categoryId,
+});
+
+const serializeRequest = (item: any) => ({
+  ...item,
+  amount: Number(item.amount || 0),
+  categoryId: item.expenseCategoryId,
+  category: item.expenseCategory,
+});
+
+const serializeVoucher = (item: any) => ({
+  ...item,
+  amount: Number(item.amount || 0),
+  paymentRequestId: item.paymentRequestId,
+  requestId: item.paymentRequestId,
+  receiverName: item.recipientName,
+  expenseCategoryId: item.expenseCategoryId,
+  categoryId: item.expenseCategoryId,
+  category: item.expenseCategory,
+});
+
+const serializeCashAccount = (item: any) => ({
+  ...item,
+  balance: Number(item.balance || 0),
+  currentBalance: Number(item.balance || 0),
+  type: item.code,
+});
+
 // SUPPLIERS
 export const getSuppliers = async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -102,7 +139,7 @@ export const getPaymentMethods = async (req: AuthenticatedRequest, res: Response
 export const getCashAccounts = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const items = await prisma.cashAccount.findMany({ where: { isActive: true } });
-    res.json({ success: true, items });
+    res.json({ success: true, items: items.map(serializeCashAccount) });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi tải tài khoản tiền.' });
   }
@@ -120,7 +157,7 @@ export const getPaymentRequests = async (req: AuthenticatedRequest, res: Respons
       },
       orderBy: { createdAt: 'desc' },
     });
-    res.json({ success: true, items });
+    res.json({ success: true, items: items.map(serializeRequest) });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi tải đề nghị chi.' });
   }
@@ -128,7 +165,7 @@ export const getPaymentRequests = async (req: AuthenticatedRequest, res: Respons
 
 export const createPaymentRequest = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const validated = paymentRequestSchema.parse(req.body);
+    const validated = paymentRequestSchema.parse(normalizePaymentRequestBody(req.body));
     const count = await prisma.paymentRequest.count();
     const code = `DNC${String(count + 1).padStart(4, '0')}`;
 
@@ -146,7 +183,7 @@ export const createPaymentRequest = async (req: AuthenticatedRequest, res: Respo
       },
     });
 
-    res.status(201).json({ success: true, item });
+    res.status(201).json({ success: true, item: serializeRequest(item) });
   } catch (error: any) {
     if (error instanceof z.ZodError) return res.status(400).json({ message: error.errors[0].message });
     res.status(500).json({ message: 'Lỗi tạo đề nghị chi.' });
@@ -183,7 +220,7 @@ export const approvePaymentRequest = async (req: AuthenticatedRequest, res: Resp
       },
     });
 
-    res.json({ success: true, item: updated });
+    res.json({ success: true, item: serializeRequest(updated) });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi xử lý phê duyệt.' });
   }
@@ -218,7 +255,7 @@ export const getPaymentVouchers = async (req: AuthenticatedRequest, res: Respons
       },
       orderBy: { createdAt: 'desc' },
     });
-    res.json({ success: true, items });
+    res.json({ success: true, items: items.map(serializeVoucher) });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi tải phiếu chi.' });
   }
@@ -226,7 +263,7 @@ export const getPaymentVouchers = async (req: AuthenticatedRequest, res: Respons
 
 export const createPaymentVoucher = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const validated = paymentVoucherSchema.parse(req.body);
+    const validated = paymentVoucherSchema.parse(normalizePaymentVoucherBody(req.body));
     const count = await prisma.paymentVoucher.count();
     const code = `PC${String(count + 1).padStart(4, '0')}`;
 
@@ -260,7 +297,7 @@ export const createPaymentVoucher = async (req: AuthenticatedRequest, res: Respo
       return v;
     });
 
-    res.status(201).json({ success: true, item: voucher });
+    res.status(201).json({ success: true, item: serializeVoucher(voucher) });
   } catch (error: any) {
     if (error instanceof z.ZodError) return res.status(400).json({ message: error.errors[0].message });
     res.status(500).json({ message: 'Lỗi tạo phiếu chi.' });
@@ -409,16 +446,29 @@ export const getPaymentDashboard = async (req: AuthenticatedRequest, res: Respon
     // 7. Balance summary for Cash accounts
     const cashAccounts = await prisma.cashAccount.findMany({ where: { isActive: true } });
 
+    const accounts = cashAccounts.map(serializeCashAccount);
+    const byGroup = Object.entries(groupExpenses).map(([name, value]) => ({ name, value }));
+    const legacyExpenseByGroup = byGroup.map((group) => ({
+      categoryId: group.name,
+      category: { name: group.name },
+      _sum: { amount: group.value },
+    }));
+
     res.json({
       success: true,
       data: {
+        totalPaidToday: Number(todayExpenses._sum.amount || 0),
+        totalPaidThisMonth: Number(monthExpenses._sum.amount || 0),
+        totalDebt: Number(supplierDebt._sum.currentDebt || 0),
+        accountsBalance: accounts,
+        expenseByGroup: legacyExpenseByGroup,
         todayTotal: Number(todayExpenses._sum.amount || 0),
         monthTotal: Number(monthExpenses._sum.amount || 0),
         unpostedCount,
         pendingRequestsCount,
         totalSupplierDebt: Number(supplierDebt._sum.currentDebt || 0),
-        byCategoryGroup: Object.entries(groupExpenses).map(([name, value]) => ({ name, value })),
-        cashAccounts: cashAccounts.map(ca => ({ code: ca.code, name: ca.name, balance: Number(ca.balance) })),
+        byCategoryGroup: byGroup,
+        cashAccounts: accounts,
       },
     });
   } catch (error) {
