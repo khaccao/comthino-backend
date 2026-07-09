@@ -23,6 +23,7 @@ const paymentRequestSchema = z.object({
 });
 
 const paymentVoucherSchema = z.object({
+  paymentDate: z.string().optional().nullable(),
   paymentRequestId: z.string().uuid().optional().nullable(),
   recipientName: z.string().min(1, 'Người nhận tiền không được để trống'),
   reason: z.string().min(1, 'Lý do chi không được để trống'),
@@ -41,10 +42,23 @@ const normalizePaymentRequestBody = (body: any) => ({
 
 const normalizePaymentVoucherBody = (body: any) => ({
   ...body,
+  paymentDate: body.paymentDate || body.voucherDate || undefined,
   paymentRequestId: body.paymentRequestId || body.requestId || undefined,
   recipientName: body.recipientName || body.receiverName,
   expenseCategoryId: body.expenseCategoryId || body.categoryId,
 });
+
+const parsePaymentDate = (value?: string | null) => {
+  if (!value) return new Date();
+  const normalized = String(value).trim();
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(normalized)
+    ? new Date(`${normalized}T12:00:00.000+07:00`)
+    : new Date(normalized);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error('Ngày chi không hợp lệ.');
+  }
+  return date;
+};
 
 const serializeRequest = (item: any) => ({
   ...item,
@@ -56,6 +70,7 @@ const serializeRequest = (item: any) => ({
 const serializeVoucher = (item: any) => ({
   ...item,
   amount: Number(item.amount || 0),
+  voucherDate: item.paymentDate,
   paymentRequestId: item.paymentRequestId,
   requestId: item.paymentRequestId,
   receiverName: item.recipientName,
@@ -253,7 +268,7 @@ export const getPaymentVouchers = async (req: AuthenticatedRequest, res: Respons
         expenseCategory: true,
         creator: { select: { fullName: true } },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ paymentDate: 'desc' }, { createdAt: 'desc' }],
     });
     res.json({ success: true, items: items.map(serializeVoucher) });
   } catch (error) {
@@ -272,6 +287,7 @@ export const createPaymentVoucher = async (req: AuthenticatedRequest, res: Respo
       const v = await tx.paymentVoucher.create({
         data: {
           code,
+          paymentDate: parsePaymentDate(validated.paymentDate),
           paymentRequestId: validated.paymentRequestId,
           recipientName: validated.recipientName,
           reason: validated.reason,
@@ -300,6 +316,7 @@ export const createPaymentVoucher = async (req: AuthenticatedRequest, res: Respo
     res.status(201).json({ success: true, item: serializeVoucher(voucher) });
   } catch (error: any) {
     if (error instanceof z.ZodError) return res.status(400).json({ message: error.errors[0].message });
+    if (error?.message === 'Ngày chi không hợp lệ.') return res.status(400).json({ message: error.message });
     res.status(500).json({ message: 'Lỗi tạo phiếu chi.' });
   }
 };
