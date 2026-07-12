@@ -139,6 +139,24 @@ import {
   updateSupplier,
   deleteSupplier,
 } from '../controllers/paymentController';
+import {
+  createAttendance,
+  createPayrollEmployee,
+  createWorkShift,
+  deleteAttendance,
+  deletePayrollEmployee,
+  deletePayrollRun,
+  deleteWorkShift,
+  generatePayrollRun,
+  getAttendances,
+  getPayrollBootstrap,
+  getPayrollEmployees,
+  getPayrollRuns,
+  getWorkShifts,
+  updateAttendance,
+  updatePayrollEmployee,
+  updateWorkShift,
+} from '../controllers/payrollController';
 import { getAuditLogs } from '../controllers/auditController';
 
 const router = Router();
@@ -324,6 +342,24 @@ router.delete('/payments/vouchers/:id', requirePermission('PAYMENT_VOUCHER', 'DE
 
 // Dashboard
 router.get('/payments/dashboard', requirePermission('CASH_BOOK', 'VIEW'), getPaymentDashboard);
+
+// Payroll / Attendance
+router.get('/payroll/bootstrap', requirePermission('PAYROLL', 'VIEW'), getPayrollBootstrap);
+router.get('/payroll/shifts', requirePermission('PAYROLL', 'VIEW'), getWorkShifts);
+router.post('/payroll/shifts', requirePermission('PAYROLL', 'CREATE'), createWorkShift);
+router.put('/payroll/shifts/:id', requirePermission('PAYROLL', 'EDIT'), updateWorkShift);
+router.delete('/payroll/shifts/:id', requirePermission('PAYROLL', 'DELETE'), deleteWorkShift);
+router.get('/payroll/employees', requirePermission('PAYROLL', 'VIEW'), getPayrollEmployees);
+router.post('/payroll/employees', requirePermission('PAYROLL', 'CREATE'), createPayrollEmployee);
+router.put('/payroll/employees/:id', requirePermission('PAYROLL', 'EDIT'), updatePayrollEmployee);
+router.delete('/payroll/employees/:id', requirePermission('PAYROLL', 'DELETE'), deletePayrollEmployee);
+router.get('/payroll/attendance', requirePermission('PAYROLL', 'VIEW'), getAttendances);
+router.post('/payroll/attendance', requirePermission('PAYROLL', 'CREATE'), createAttendance);
+router.put('/payroll/attendance/:id', requirePermission('PAYROLL', 'EDIT'), updateAttendance);
+router.delete('/payroll/attendance/:id', requirePermission('PAYROLL', 'DELETE'), deleteAttendance);
+router.get('/payroll/runs', requirePermission('PAYROLL', 'VIEW'), getPayrollRuns);
+router.post('/payroll/runs/generate', requirePermission('PAYROLL', 'CREATE'), generatePayrollRun);
+router.delete('/payroll/runs/:id', requirePermission('PAYROLL', 'DELETE'), deletePayrollRun);
 
 // System logs
 router.get('/audit-logs', requirePermission('AUDIT_LOG', 'VIEW'), getAuditLogs);

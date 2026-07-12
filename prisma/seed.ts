@@ -474,11 +474,12 @@ async function main() {
     { code: 'ORDER_POS', name: 'POS bán hàng', path: '/admin/pos', icon: 'Monitor', sortOrder: 25 },
     { code: 'STAFF_MANAGEMENT', name: 'Quản lý nhân viên', path: '/admin/staff', icon: 'Users2', sortOrder: 26 },
     { code: 'CUSTOMER_MANAGEMENT', name: 'Quản lý khách hàng', path: '/admin/customers', icon: 'Heart', sortOrder: 27 },
-    { code: 'SYSTEM_CONFIG', name: 'Cấu hình hệ thống', path: '/admin/site-settings', icon: 'Sliders', sortOrder: 28 },
-    { code: 'USER_MANAGEMENT', name: 'Quản lý user', path: '/admin/users', icon: 'UserCog', sortOrder: 29 },
-    { code: 'ROLE_MANAGEMENT', name: 'Quản lý vai trò', path: '/admin/roles', icon: 'Shield', sortOrder: 30 },
-    { code: 'PERMISSION_MANAGEMENT', name: 'Quản lý quyền', path: '/admin/permissions', icon: 'Key', sortOrder: 31 },
-    { code: 'AUDIT_LOG', name: 'Nhật ký hệ thống', path: '/admin/audit-logs', icon: 'History', sortOrder: 32 },
+    { code: 'PAYROLL', name: 'Chấm công & bảng lương', path: '/admin/payroll', icon: 'CalendarClock', sortOrder: 28 },
+    { code: 'SYSTEM_CONFIG', name: 'Cấu hình hệ thống', path: '/admin/site-settings', icon: 'Sliders', sortOrder: 29 },
+    { code: 'USER_MANAGEMENT', name: 'Quản lý user', path: '/admin/users', icon: 'UserCog', sortOrder: 30 },
+    { code: 'ROLE_MANAGEMENT', name: 'Quản lý vai trò', path: '/admin/roles', icon: 'Shield', sortOrder: 31 },
+    { code: 'PERMISSION_MANAGEMENT', name: 'Quản lý quyền', path: '/admin/permissions', icon: 'Key', sortOrder: 32 },
+    { code: 'AUDIT_LOG', name: 'Nhật ký hệ thống', path: '/admin/audit-logs', icon: 'History', sortOrder: 33 },
   ];
 
   for (const m of menus) {
@@ -581,6 +582,7 @@ async function main() {
     CASH_REPORT: view,
     PROFIT_REPORT: view,
     SUPPLIER_CATEGORY: maintain,
+    PAYROLL: maintain,
   });
 
   await grantRolePermissions('ACCOUNTANT', {
@@ -595,6 +597,7 @@ async function main() {
     PROFIT_REPORT: view,
     SUPPLIER_CATEGORY: maintain,
     SUPPLIER_DEBT: view,
+    PAYROLL: ['VIEW', 'CREATE', 'EDIT', 'EXPORT'],
   });
 
   await grantRolePermissions('OWNER', {
@@ -615,6 +618,7 @@ async function main() {
     SUPPLIER_CATEGORY: maintain,
     MENU_MANAGEMENT: maintain,
     DISH_CATEGORY: maintain,
+    PAYROLL: maintain,
   });
 
   // 14. Seed Cash Payment Master Data
@@ -680,3 +684,4 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
+

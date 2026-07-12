@@ -497,3 +497,106 @@ model PaymentVoucher {
 
   @@map("PaymentVouchers")
 }
+
+// Attendance and payroll management tables
+model WorkShift {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  startTime   String?
+  endTime     String?
+  hourlyRate  Decimal  @default(0.0) @db.Decimal(18, 2)
+  description String?  @db.NVarChar(MAX)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  employees   PayrollEmployee[]
+  attendances AttendanceRecord[]
+
+  @@map("WorkShifts")
+}
+
+model PayrollEmployee {
+  id             String   @id @default(uuid())
+  code           String   @unique
+  fullName       String
+  phone          String?
+  position       String?
+  defaultShiftId String?
+  hourlyRate     Decimal? @db.Decimal(18, 2)
+  note           String?  @db.NVarChar(MAX)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  defaultShift WorkShift?         @relation(fields: [defaultShiftId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  attendances  AttendanceRecord[]
+  payrollLines PayrollLine[]
+
+  @@map("PayrollEmployees")
+}
+
+model AttendanceRecord {
+  id           String    @id @default(uuid())
+  employeeId   String
+  shiftId      String?
+  workDate     DateTime
+  clockIn      DateTime
+  clockOut     DateTime?
+  breakMinutes Int       @default(0)
+  hourlyRate   Decimal   @default(0.0) @db.Decimal(18, 2)
+  totalHours   Decimal   @default(0.0) @db.Decimal(10, 2)
+  grossAmount  Decimal   @default(0.0) @db.Decimal(18, 2)
+  note         String?   @db.NVarChar(MAX)
+  status       String    @default("RECORDED")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  employee PayrollEmployee @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  shift    WorkShift?      @relation(fields: [shiftId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([workDate])
+  @@index([employeeId, workDate])
+  @@map("AttendanceRecords")
+}
+
+model PayrollRun {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  periodStart DateTime
+  periodEnd   DateTime
+  status      String   @default("DRAFT")
+  totalHours  Decimal  @default(0.0) @db.Decimal(18, 2)
+  totalAmount Decimal  @default(0.0) @db.Decimal(18, 2)
+  note        String?  @db.NVarChar(MAX)
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lines PayrollLine[]
+
+  @@index([periodStart, periodEnd])
+  @@map("PayrollRuns")
+}
+
+model PayrollLine {
+  id              String  @id @default(uuid())
+  payrollRunId    String
+  employeeId      String
+  employeeCode    String
+  employeeName    String
+  position        String?
+  shiftName       String?
+  attendanceCount Int     @default(0)
+  totalHours      Decimal @default(0.0) @db.Decimal(18, 2)
+  hourlyRate      Decimal @default(0.0) @db.Decimal(18, 2)
+  grossAmount     Decimal @default(0.0) @db.Decimal(18, 2)
+  note            String? @db.NVarChar(MAX)
+
+  payrollRun PayrollRun      @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  employee   PayrollEmployee @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([payrollRunId, employeeId])
+  @@map("PayrollLines")
+}
