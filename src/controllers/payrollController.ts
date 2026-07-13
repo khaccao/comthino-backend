@@ -58,7 +58,9 @@ const combineWorkDateAndTime = (workDate: string, value: string) => {
   const raw = String(value).trim();
   if (/^\d{2}:\d{2}(:\d{2})?$/.test(raw)) {
     const time = raw.length === 5 ? `${raw}:00` : raw;
-    return new Date(`${workDate}T${time}.000+07:00`);
+    const date = new Date(`${workDate}T${time}.000+07:00`);
+    if (Number.isNaN(date.getTime())) throw new Error('Giờ chấm công không hợp lệ.');
+    return date;
   }
   const date = new Date(raw);
   if (Number.isNaN(date.getTime())) throw new Error('Giờ chấm công không hợp lệ.');
@@ -109,6 +111,25 @@ const getRateForAttendance = async (employeeId: string, shiftId?: string | null,
   const employee = await prisma.payrollEmployee.findUnique({ where: { id: employeeId }, include: { defaultShift: true } });
   const shift = shiftId ? await prisma.workShift.findUnique({ where: { id: shiftId } }) : employee?.defaultShift;
   return money(employee?.hourlyRate ?? shift?.hourlyRate ?? 0);
+};
+
+const resolveAttendanceMasterData = async (employeeId: string, shiftId?: string | null) => {
+  const employee = await prisma.payrollEmployee.findUnique({ where: { id: employeeId }, include: { defaultShift: true } });
+  if (!employee) throw new Error('Không tìm thấy nhân viên chấm công.');
+  const finalShiftId = shiftId || employee.defaultShiftId || null;
+  const shift = finalShiftId ? await prisma.workShift.findUnique({ where: { id: finalShiftId } }) : employee.defaultShift;
+  if (finalShiftId && !shift) throw new Error('Ca làm không hợp lệ hoặc đã bị xóa.');
+  return { employee, shift, shiftId: shift?.id || null };
+};
+
+const normalizeClockOut = (clockIn: Date, clockOut: Date | null) => {
+  if (!clockOut) return null;
+  if (clockOut.getTime() < clockIn.getTime()) {
+    const next = new Date(clockOut);
+    next.setDate(next.getDate() + 1);
+    return next;
+  }
+  return clockOut;
 };
 
 export const getPayrollBootstrap = async (_req: AuthenticatedRequest, res: Response) => {
@@ -217,13 +238,28 @@ export const getAttendances = async (req: AuthenticatedRequest, res: Response) =
 export const createAttendance = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const data = attendanceSchema.parse(req.body);
+    const master = await resolveAttendanceMasterData(data.employeeId, data.shiftId);
     const workDate = parseDateOnly(data.workDate);
     const clockIn = combineWorkDateAndTime(data.workDate, data.clockIn);
-    const clockOut = data.clockOut ? combineWorkDateAndTime(data.workDate, data.clockOut) : null;
-    const hourlyRate = await getRateForAttendance(data.employeeId, data.shiftId, data.hourlyRate);
+    const clockOut = normalizeClockOut(clockIn, data.clockOut ? combineWorkDateAndTime(data.workDate, data.clockOut) : null);
+    const hourlyRate = data.hourlyRate !== null && data.hourlyRate !== undefined
+      ? data.hourlyRate
+      : money(master.employee.hourlyRate ?? master.shift?.hourlyRate ?? 0);
     const totals = calcAttendance(clockIn, clockOut, data.breakMinutes, hourlyRate);
     const item = await prisma.attendanceRecord.create({
-      data: { ...data, workDate, clockIn, clockOut, hourlyRate, ...totals },
+      data: {
+        employeeId: data.employeeId,
+        shiftId: master.shiftId,
+        workDate,
+        clockIn,
+        clockOut,
+        breakMinutes: data.breakMinutes,
+        hourlyRate,
+        totalHours: totals.totalHours,
+        grossAmount: totals.grossAmount,
+        note: data.note || null,
+        status: data.status || 'RECORDED',
+      },
       include: { employee: { include: { defaultShift: true } }, shift: true },
     });
     res.status(201).json({ success: true, item: serializeAttendance(item) });
@@ -241,19 +277,33 @@ export const updateAttendance = async (req: AuthenticatedRequest, res: Response)
     const workDateText = data.workDate || current.workDate.toISOString().slice(0, 10);
     const workDate = data.workDate ? parseDateOnly(data.workDate) : current.workDate;
     const clockIn = data.clockIn ? combineWorkDateAndTime(workDateText, data.clockIn) : current.clockIn;
-    const clockOut = data.clockOut !== undefined
+    const rawClockOut = data.clockOut !== undefined
       ? (data.clockOut ? combineWorkDateAndTime(workDateText, data.clockOut) : null)
       : current.clockOut;
+    const clockOut = normalizeClockOut(clockIn, rawClockOut);
     const breakMinutes = data.breakMinutes ?? current.breakMinutes;
     const employeeId = data.employeeId || current.employeeId;
     const shiftId = data.shiftId !== undefined ? data.shiftId : current.shiftId;
+    const master = await resolveAttendanceMasterData(employeeId, shiftId);
     const hourlyRate = data.hourlyRate !== undefined && data.hourlyRate !== null
       ? data.hourlyRate
-      : money(current.hourlyRate) || await getRateForAttendance(employeeId, shiftId);
+      : money(current.hourlyRate) || money(master.employee.hourlyRate ?? master.shift?.hourlyRate ?? 0);
     const totals = calcAttendance(clockIn, clockOut, breakMinutes, hourlyRate);
     const item = await prisma.attendanceRecord.update({
       where: { id: req.params.id },
-      data: { ...data, employeeId, shiftId, workDate, clockIn, clockOut, breakMinutes, hourlyRate, ...totals },
+      data: {
+        employeeId,
+        shiftId: master.shiftId,
+        workDate,
+        clockIn,
+        clockOut,
+        breakMinutes,
+        hourlyRate,
+        totalHours: totals.totalHours,
+        grossAmount: totals.grossAmount,
+        note: data.note !== undefined ? data.note : current.note,
+        status: data.status || current.status,
+      },
       include: { employee: { include: { defaultShift: true } }, shift: true },
     });
     res.json({ success: true, item: serializeAttendance(item) });
