@@ -146,6 +146,8 @@ BEGIN
     Status NVARCHAR(30) NOT NULL CONSTRAINT DF_ComPosOrders_Status DEFAULT 'OPEN',
     Note NVARCHAR(MAX) NULL,
     SubTotal DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrders_SubTotal DEFAULT 0,
+    DiscountType NVARCHAR(20) NOT NULL CONSTRAINT DF_ComPosOrders_DiscountType DEFAULT 'AMOUNT',
+    DiscountValue DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrders_DiscountValue DEFAULT 0,
     DiscountAmount DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrders_Discount DEFAULT 0,
     ServiceCharge DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrders_Service DEFAULT 0,
     VatAmount DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrders_Vat DEFAULT 0,
@@ -220,7 +222,10 @@ IF COL_LENGTH('dbo.ComPosMenuCategories', 'SourceGuid') IS NULL ALTER TABLE dbo.
 IF COL_LENGTH('dbo.ComPosMenuCategories', 'SourceTable') IS NULL ALTER TABLE dbo.ComPosMenuCategories ADD SourceTable NVARCHAR(80) NULL;
 IF COL_LENGTH('dbo.ComPosMenuItems', 'SourceGuid') IS NULL ALTER TABLE dbo.ComPosMenuItems ADD SourceGuid NVARCHAR(64) NULL;
 IF COL_LENGTH('dbo.ComPosMenuItems', 'SourceTable') IS NULL ALTER TABLE dbo.ComPosMenuItems ADD SourceTable NVARCHAR(80) NULL;
+IF COL_LENGTH('dbo.ComPosOrders', 'DiscountType') IS NULL ALTER TABLE dbo.ComPosOrders ADD DiscountType NVARCHAR(20) NOT NULL CONSTRAINT DF_ComPosOrders_DiscountType_Alter DEFAULT 'AMOUNT';
+IF COL_LENGTH('dbo.ComPosOrders', 'DiscountValue') IS NULL ALTER TABLE dbo.ComPosOrders ADD DiscountValue DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrders_DiscountValue_Alter DEFAULT 0;
 IF COL_LENGTH('dbo.ComPosOrders', 'PaymentQrUrl') IS NULL ALTER TABLE dbo.ComPosOrders ADD PaymentQrUrl NVARCHAR(1000) NULL;
+UPDATE dbo.ComPosOrders SET DiscountType='AMOUNT', DiscountValue=DiscountAmount WHERE ISNULL(DiscountValue, 0) = 0 AND ISNULL(DiscountAmount, 0) > 0;
 `);
 
   if (syncData) {
@@ -758,16 +763,30 @@ ORDER BY CreateDate ASC
   return { ...order, items: items.recordset };
 };
 
-const recalculateOrder = async (orderId: string, discountAmount?: number) => {
+const normalizeDiscountType = (value: unknown) => String(value || 'AMOUNT').toUpperCase() === 'PERCENT' ? 'PERCENT' : 'AMOUNT';
+
+const calculateDiscountAmount = (subTotal: number, discountType: string, discountValue: number) => {
+  const safeValue = Math.max(0, toNumber(discountValue));
+  const rawDiscount = discountType === 'PERCENT' ? subTotal * Math.min(100, safeValue) / 100 : safeValue;
+  return Math.min(subTotal, Math.max(0, rawDiscount));
+};
+
+const recalculateOrder = async (orderId: string, discountMeta?: { type?: string; value?: number; amount?: number }) => {
   const pool = await getCaoPool();
-  const current = await pool.request().input('Id', sql.NVarChar(64), orderId).query('SELECT OrderNo, DiscountAmount FROM dbo.ComPosOrders WHERE Id = @Id');
+  const current = await pool.request().input('Id', sql.NVarChar(64), orderId).query('SELECT OrderNo, DiscountType, DiscountValue, DiscountAmount FROM dbo.ComPosOrders WHERE Id = @Id');
   const orderInfo = row<any>(current.recordset);
-  const discount = discountAmount ?? toNumber(orderInfo?.DiscountAmount);
+  const discountType = normalizeDiscountType(discountMeta?.type || orderInfo?.DiscountType);
+  const discountValue = discountMeta?.value !== undefined
+    ? Math.max(0, toNumber(discountMeta.value))
+    : (orderInfo?.DiscountValue !== undefined && orderInfo?.DiscountValue !== null
+      ? Math.max(0, toNumber(orderInfo.DiscountValue))
+      : Math.max(0, toNumber(discountMeta?.amount ?? orderInfo?.DiscountAmount)));
   const totalResult = await pool
     .request()
     .input('OrderId', sql.NVarChar(64), orderId)
     .query('SELECT SUM(UnitPrice * Quantity) AS SubTotal FROM dbo.ComPosOrderItems WHERE OrderId = @OrderId');
   const subTotal = toNumber(row<any>(totalResult.recordset)?.SubTotal);
+  const discount = calculateDiscountAmount(subTotal, discountType, discountValue);
   const totalAmount = Math.max(0, subTotal - discount);
   const paymentSetting = await getPaymentSetting(pool);
   const paymentQrUrl = buildPaymentQrUrl(paymentSetting, totalAmount, orderInfo?.OrderNo || orderId);
@@ -775,11 +794,13 @@ const recalculateOrder = async (orderId: string, discountAmount?: number) => {
     .request()
     .input('Id', sql.NVarChar(64), orderId)
     .input('SubTotal', sql.Decimal(18, 2), subTotal)
+    .input('DiscountType', sql.NVarChar(20), discountType)
+    .input('DiscountValue', sql.Decimal(18, 2), discountValue)
     .input('DiscountAmount', sql.Decimal(18, 2), discount)
     .input('TotalAmount', sql.Decimal(18, 2), totalAmount)
     .input('PaymentQrUrl', sql.NVarChar(1000), paymentQrUrl || null)
     .query(`UPDATE dbo.ComPosOrders
-      SET SubTotal = @SubTotal, DiscountAmount = @DiscountAmount, TotalAmount = @TotalAmount, PaymentQrUrl = @PaymentQrUrl, UpdatedAt = SYSDATETIME()
+      SET SubTotal = @SubTotal, DiscountType = @DiscountType, DiscountValue = @DiscountValue, DiscountAmount = @DiscountAmount, TotalAmount = @TotalAmount, PaymentQrUrl = @PaymentQrUrl, UpdatedAt = SYSDATETIME()
       WHERE Id = @Id`);
 
   await pool.request().input('Id', sql.NVarChar(64), orderId).query(`
@@ -1166,13 +1187,19 @@ export const updatePosOrder = async (req: AuthenticatedRequest, res: Response) =
   try {
     await ensurePosSchema();
     const pool = await getCaoPool();
+    const hasDiscountValue = req.body.discountValue !== undefined && req.body.discountValue !== null && req.body.discountValue !== '';
+    const discountType = normalizeDiscountType(req.body.discountType || (hasDiscountValue ? 'AMOUNT' : undefined));
+    const discountValue = hasDiscountValue
+      ? Math.max(0, toNumber(req.body.discountValue))
+      : Math.max(0, toNumber(req.body.discountAmount));
     await pool
       .request()
       .input('Id', sql.NVarChar(64), req.params.id)
       .input('Note', sql.NVarChar(sql.MAX), req.body.note || null)
-      .input('DiscountAmount', sql.Decimal(18, 2), Math.max(0, toNumber(req.body.discountAmount)))
-      .query('UPDATE dbo.ComPosOrders SET Note=@Note, DiscountAmount=@DiscountAmount, UpdatedAt=SYSDATETIME() WHERE Id=@Id');
-    await recalculateOrder(req.params.id, Math.max(0, toNumber(req.body.discountAmount)));
+      .input('DiscountType', sql.NVarChar(20), discountType)
+      .input('DiscountValue', sql.Decimal(18, 2), discountValue)
+      .query('UPDATE dbo.ComPosOrders SET Note=@Note, DiscountType=@DiscountType, DiscountValue=@DiscountValue, UpdatedAt=SYSDATETIME() WHERE Id=@Id');
+    await recalculateOrder(req.params.id, { type: discountType, value: discountValue });
     res.json({ success: true, data: await getOrderById(req.params.id) });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message || 'Không cập nhật được order.' });
