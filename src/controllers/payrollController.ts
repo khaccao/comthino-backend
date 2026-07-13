@@ -45,6 +45,17 @@ const runSchema = z.object({
 const money = (value: any) => Number(value || 0);
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
+const vietnamDateKey = (date = new Date()) => {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+};
+
 const parseDateOnly = (value: string, endOfDay = false) => {
   const normalized = String(value).trim();
   const date = /^\d{4}-\d{2}-\d{2}$/.test(normalized)
@@ -134,13 +145,13 @@ const normalizeClockOut = (clockIn: Date, clockOut: Date | null) => {
 
 export const getPayrollBootstrap = async (_req: AuthenticatedRequest, res: Response) => {
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const todayStart = parseDateOnly(vietnamDateKey());
+    const todayEnd = parseDateOnly(vietnamDateKey(), true);
     const [shifts, employees, attendances, runs] = await Promise.all([
       prisma.workShift.findMany({ orderBy: [{ isActive: 'desc' }, { name: 'asc' }] }),
       prisma.payrollEmployee.findMany({ include: { defaultShift: true }, orderBy: [{ isActive: 'desc' }, { fullName: 'asc' }] }),
       prisma.attendanceRecord.findMany({
-        where: { workDate: { gte: today } },
+        where: { workDate: { gte: todayStart, lte: todayEnd } },
         include: { employee: { include: { defaultShift: true } }, shift: true },
         orderBy: [{ workDate: 'desc' }, { clockIn: 'desc' }],
       }),
@@ -225,8 +236,9 @@ export const deletePayrollEmployee = async (req: AuthenticatedRequest, res: Resp
 };
 
 export const getAttendances = async (req: AuthenticatedRequest, res: Response) => {
-  const from = parseDateOnly(String(req.query.from || new Date().toISOString().slice(0, 10)));
-  const to = parseDateOnly(String(req.query.to || req.query.from || new Date().toISOString().slice(0, 10)), true);
+  const defaultDate = vietnamDateKey();
+  const from = parseDateOnly(String(req.query.from || defaultDate));
+  const to = parseDateOnly(String(req.query.to || req.query.from || defaultDate), true);
   const items = await prisma.attendanceRecord.findMany({
     where: { workDate: { gte: from, lte: to } },
     include: { employee: { include: { defaultShift: true } }, shift: true },
