@@ -10,7 +10,11 @@ const supplierSchema = z.object({
   taxCode: z.string().optional().nullable(),
   address: z.string().optional().nullable(),
   paymentTerm: z.string().optional().nullable(),
+  paymentTermDays: z.number().int().min(0).optional().nullable(),
+  paymentDueDate: z.string().optional().nullable(),
+  paymentWarningDays: z.number().int().min(0).max(365).default(3),
   currentDebt: z.number().default(0),
+  isActive: z.boolean().optional(),
 });
 
 const paymentRequestSchema = z.object({
@@ -60,6 +64,125 @@ const parsePaymentDate = (value?: string | null) => {
   return date;
 };
 
+const toVietnamDateKey = (value: Date) => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(value);
+  const get = (type: string) => parts.find(part => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+};
+
+const dateKeyToUtc = (key: string) => {
+  const [year, month, day] = key.split('-').map(Number);
+  return Date.UTC(year, month - 1, day);
+};
+
+const todayVietnamKey = () => toVietnamDateKey(new Date());
+
+const addDaysToDateKey = (key: string, days: number) => {
+  const date = new Date(dateKeyToUtc(key));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
+
+const parseSupplierDueDate = (value?: string | null) => {
+  if (!value) return null;
+  const normalized = String(value).trim();
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(normalized)
+    ? new Date(`${normalized}T12:00:00.000+07:00`)
+    : new Date(normalized);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error('Ngày hạn thanh toán không hợp lệ.');
+  }
+  return date;
+};
+
+const serializeSupplier = (item: any) => {
+  const currentDebt = Number(item.currentDebt || 0);
+  const dueDate = item.paymentDueDate ? new Date(item.paymentDueDate) : null;
+  const dueDateKey = dueDate ? toVietnamDateKey(dueDate) : null;
+  const todayKey = todayVietnamKey();
+  const daysUntilDue = dueDateKey
+    ? Math.round((dateKeyToUtc(dueDateKey) - dateKeyToUtc(todayKey)) / 86400000)
+    : null;
+  const warningDays = Number(item.paymentWarningDays ?? 3);
+  const hasDebt = currentDebt > 0;
+  const dueStatus = !dueDateKey || !hasDebt
+    ? 'NONE'
+    : daysUntilDue! < 0
+      ? 'OVERDUE'
+      : daysUntilDue === 0
+        ? 'DUE_TODAY'
+        : daysUntilDue! <= warningDays
+          ? 'DUE_SOON'
+          : 'UPCOMING';
+  const dueStatusLabel = dueStatus === 'OVERDUE'
+    ? `Quá hạn ${Math.abs(daysUntilDue || 0)} ngày`
+    : dueStatus === 'DUE_TODAY'
+      ? 'Đến hạn hôm nay'
+      : dueStatus === 'DUE_SOON'
+        ? `Còn ${daysUntilDue} ngày`
+        : dueDateKey
+          ? `Còn ${daysUntilDue} ngày`
+          : '-';
+
+  return {
+    ...item,
+    currentDebt,
+    paymentDueDate: dueDateKey,
+    paymentTermDays: item.paymentTermDays ?? null,
+    paymentWarningDays: warningDays,
+    daysUntilDue,
+    dueStatus,
+    dueStatusLabel,
+    shouldAlert: hasDebt && ['OVERDUE', 'DUE_TODAY', 'DUE_SOON'].includes(dueStatus),
+  };
+};
+
+const normalizeSupplierBody = (body: any) => {
+  const normalized = {
+    ...body,
+    paymentTerm: body.paymentTerm ?? body.paymentTerms,
+    paymentTermDays: body.paymentTermDays === '' || body.paymentTermDays === undefined || body.paymentTermDays === null
+      ? null
+      : Number(body.paymentTermDays),
+    paymentWarningDays: body.paymentWarningDays === '' || body.paymentWarningDays === undefined || body.paymentWarningDays === null
+      ? 3
+      : Number(body.paymentWarningDays),
+    currentDebt: Number(body.currentDebt || 0),
+  };
+  const validated = supplierSchema.parse(normalized);
+  const todayKey = todayVietnamKey();
+  const dueDate = validated.paymentDueDate
+    ? parseSupplierDueDate(validated.paymentDueDate)
+    : (validated.paymentTermDays !== null && validated.paymentTermDays !== undefined
+      ? parseSupplierDueDate(addDaysToDateKey(todayKey, validated.paymentTermDays))
+      : null);
+
+  if (dueDate) {
+    const dueKey = toVietnamDateKey(dueDate);
+    if (dateKeyToUtc(dueKey) < dateKeyToUtc(todayKey)) {
+      throw new Error('Hạn thanh toán phải lớn hơn hoặc bằng ngày hiện tại.');
+    }
+  }
+
+  return {
+    name: validated.name,
+    phone: validated.phone || null,
+    taxCode: validated.taxCode || null,
+    address: validated.address || null,
+    paymentTerm: validated.paymentTerm || (validated.paymentTermDays ? `${validated.paymentTermDays} ngày` : null),
+    paymentTermDays: validated.paymentTermDays,
+    paymentDueDate: dueDate,
+    paymentWarningDays: validated.paymentWarningDays,
+    currentDebt: validated.currentDebt,
+    isActive: validated.isActive ?? true,
+  };
+};
+
 const serializeRequest = (item: any) => ({
   ...item,
   amount: Number(item.amount || 0),
@@ -93,19 +216,36 @@ export const getSuppliers = async (req: AuthenticatedRequest, res: Response) => 
       where: { isActive: true },
       orderBy: { name: 'asc' },
     });
-    res.json({ success: true, items: suppliers });
+    res.json({ success: true, items: suppliers.map(serializeSupplier) });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi tải danh mục nhà cung cấp.' });
   }
 };
 
+export const getSupplierDueAlerts = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const suppliers = await prisma.supplier.findMany({
+      where: { isActive: true, currentDebt: { gt: 0 } },
+      orderBy: { name: 'asc' },
+    });
+    const items = suppliers
+      .map(serializeSupplier)
+      .filter(item => item.shouldAlert)
+      .sort((a, b) => Number(a.daysUntilDue ?? 9999) - Number(b.daysUntilDue ?? 9999));
+    res.json({ success: true, items });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi tải cảnh báo hạn thanh toán.' });
+  }
+};
+
 export const createSupplier = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const validated = supplierSchema.parse(req.body);
+    const validated = normalizeSupplierBody(req.body);
     const item = await prisma.supplier.create({ data: validated });
-    res.status(201).json({ success: true, item });
+    res.status(201).json({ success: true, item: serializeSupplier(item) });
   } catch (error: any) {
     if (error instanceof z.ZodError) return res.status(400).json({ message: error.errors[0].message });
+    if (error?.message) return res.status(400).json({ message: error.message });
     res.status(500).json({ message: 'Lỗi thêm nhà cung cấp.' });
   }
 };
@@ -113,11 +253,12 @@ export const createSupplier = async (req: AuthenticatedRequest, res: Response) =
 export const updateSupplier = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const validated = supplierSchema.partial().parse(req.body);
+    const validated = normalizeSupplierBody(req.body);
     await prisma.supplier.update({ where: { id }, data: validated });
     res.json({ success: true, message: 'Cập nhật thành công.' });
   } catch (error: any) {
     if (error instanceof z.ZodError) return res.status(400).json({ message: error.errors[0].message });
+    if (error?.message) return res.status(400).json({ message: error.message });
     res.status(500).json({ message: 'Lỗi cập nhật.' });
   }
 };

@@ -135,6 +135,7 @@ import {
   getExpenseCategories,
   getCashAccounts,
   getSuppliers,
+  getSupplierDueAlerts,
   createSupplier,
   updateSupplier,
   deleteSupplier,
@@ -324,6 +325,7 @@ router.get('/payments/cash-accounts', getCashAccounts); // selection helper for 
 
 // Suppliers
 router.get('/suppliers', requirePermission('SUPPLIER_CATEGORY', 'VIEW'), getSuppliers);
+router.get('/suppliers/due-alerts', requirePermission('SUPPLIER_CATEGORY', 'VIEW'), getSupplierDueAlerts);
 router.post('/suppliers', requirePermission('SUPPLIER_CATEGORY', 'CREATE'), createSupplier);
 router.put('/suppliers/:id', requirePermission('SUPPLIER_CATEGORY', 'EDIT'), updateSupplier);
 router.delete('/suppliers/:id', requirePermission('SUPPLIER_CATEGORY', 'DELETE'), deleteSupplier);

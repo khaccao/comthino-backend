@@ -436,6 +436,9 @@ model Supplier {
   address      String?
   currentDebt  Decimal  @default(0.0) @db.Decimal(18, 2)
   paymentTerm  String?
+  paymentTermDays Int?
+  paymentDueDate DateTime?
+  paymentWarningDays Int @default(3)
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
