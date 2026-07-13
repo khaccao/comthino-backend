@@ -225,7 +225,10 @@ IF COL_LENGTH('dbo.ComPosMenuItems', 'SourceTable') IS NULL ALTER TABLE dbo.ComP
 IF COL_LENGTH('dbo.ComPosOrders', 'DiscountType') IS NULL ALTER TABLE dbo.ComPosOrders ADD DiscountType NVARCHAR(20) NOT NULL CONSTRAINT DF_ComPosOrders_DiscountType_Alter DEFAULT 'AMOUNT';
 IF COL_LENGTH('dbo.ComPosOrders', 'DiscountValue') IS NULL ALTER TABLE dbo.ComPosOrders ADD DiscountValue DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrders_DiscountValue_Alter DEFAULT 0;
 IF COL_LENGTH('dbo.ComPosOrders', 'PaymentQrUrl') IS NULL ALTER TABLE dbo.ComPosOrders ADD PaymentQrUrl NVARCHAR(1000) NULL;
-UPDATE dbo.ComPosOrders SET DiscountType='AMOUNT', DiscountValue=DiscountAmount WHERE ISNULL(DiscountValue, 0) = 0 AND ISNULL(DiscountAmount, 0) > 0;
+IF COL_LENGTH('dbo.ComPosOrders', 'DiscountType') IS NOT NULL
+  AND COL_LENGTH('dbo.ComPosOrders', 'DiscountValue') IS NOT NULL
+  AND COL_LENGTH('dbo.ComPosOrders', 'DiscountAmount') IS NOT NULL
+  EXEC(N'UPDATE dbo.ComPosOrders SET DiscountType=''AMOUNT'', DiscountValue=DiscountAmount WHERE ISNULL(DiscountValue, 0) = 0 AND ISNULL(DiscountAmount, 0) > 0');
 `);
 
   if (syncData) {
