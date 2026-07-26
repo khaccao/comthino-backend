@@ -1,4 +1,9 @@
 User-agent: *
 Allow: /
+Allow: /tin-tuc
+Allow: /com-ngon-ha-dong
+Allow: /com-ngon-van-quan
+Allow: /quan-com-ngon-van-quan
+Disallow: /admin
 Disallow: /api/
 Sitemap: https://comthino.com/sitemap.xml

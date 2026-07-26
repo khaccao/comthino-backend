@@ -39,25 +39,51 @@
   </url>
   <!-- Blog Categories (dynamic) -->
   <url>
-    <loc>https://comthino.com/blog</loc>
+    <loc>https://comthino.com/tin-tuc</loc>
     <changefreq>daily</changefreq>
     <priority>0.9</priority>
   </url>
+  <!-- Local SEO landing pages -->
+  <url>
+    <loc>https://comthino.com/com-ngon-ha-dong</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://comthino.com/com-ngon-van-quan</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://comthino.com/quan-com-ngon-van-quan</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://comthino.com/com-van-phong-ha-dong</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <url>
+    <loc>https://comthino.com/dat-com-van-phong-ha-dong</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+  </url>
   <!-- Example Blog Posts (static placeholders, actual posts will be crawled automatically) -->
   <url>
-    <loc>https://comthino.com/blog/com-thi-no-khai-truong-tai-van-quan-ha-dong</loc>
+    <loc>https://comthino.com/tin-tuc/com-thi-no-khai-truong-tai-kdt-van-quan-ha-dong</loc>
     <lastmod>2026-06-22</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://comthino.com/blog/goi-y-bua-trua-van-phong-ngon-mieng-tai-ha-dong</loc>
+    <loc>https://comthino.com/tin-tuc/goi-y-bua-trua-van-phong-ngon-mieng-tai-ha-dong</loc>
     <lastmod>2026-06-22</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://comthino.com/blog/vi-sao-com-que-bac-bo-luon-duoc-yeu-thich</loc>
+    <loc>https://comthino.com/tin-tuc/vi-sao-com-que-bac-bo-luon-duoc-yeu-thich</loc>
     <lastmod>2026-06-22</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>

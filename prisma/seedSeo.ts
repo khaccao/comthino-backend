@@ -36,15 +36,47 @@ function generateLandingPageContent(title: string, keyword: string) {
       <div class="cta-section" style="text-align: center; margin: 40px 0;">
         <h2>Sẵn sàng trải nghiệm?</h2>
         <p>Liên hệ ngay với chúng tôi để đặt bàn hoặc gọi ship tận nơi khu vực <strong>Hà Đông</strong> và <strong>Hà Nội</strong>.</p>
-        <a href="tel:0987654321" style="display: inline-block; background: #C96A24; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 1.2rem;">GỌI NGAY: 0987.654.321</a>
+        <a href="tel:0971170103" style="display: inline-block; background: #C96A24; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 1.2rem;">GỌI NGAY: 0971.170.103</a>
       </div>
 
       <div class="contact-info">
         <h3>Thông Tin Liên Hệ - Cơm Thị Nở</h3>
         <p><strong>Địa chỉ:</strong> A16TT18 Nguyễn Khuyến, KĐT Văn Quán, Hà Đông, Hà Nội</p>
-        <p><strong>Điện thoại:</strong> 0987.654.321</p>
+        <p><strong>Điện thoại:</strong> 0971.170.103</p>
         <p><strong>Giờ mở cửa:</strong> 09:00 - 22:00 (Hằng ngày)</p>
       </div>
+    </div>
+  `;
+}
+
+function generateComNgonLocalContent(areaName: string, keyword: string) {
+  const nearby = areaName === 'Văn Quán'
+    ? 'Nguyễn Khuyến, hồ Văn Quán, Chiến Thắng, Phúc La và khu đô thị Văn Quán'
+    : 'Văn Quán, Nguyễn Khuyến, Trần Phú, Mỗ Lao, Phúc La và các khu văn phòng quanh Hà Đông';
+
+  return `
+    <div class="seo-landing-content">
+      <h1>${keyword} tại ${areaName} - Cơm Thị Nở Nguyễn Khuyến</h1>
+      <p class="lead">Cơm Thị Nở là địa chỉ dành cho thực khách đang tìm <strong>${keyword}</strong>, cơm quê Bắc Bộ, cơm niêu nóng hổi và mâm cơm gia đình tại khu vực <strong>${areaName}</strong>.</p>
+
+      <h2>Vì sao nhiều khách quanh ${areaName} chọn Cơm Thị Nở?</h2>
+      <p>Quán nằm tại <strong>A16TT18 Nguyễn Khuyến, KĐT Văn Quán, Hà Đông, Hà Nội</strong>, thuận tiện cho khách sinh sống, làm việc hoặc đi qua các tuyến ${nearby}. Thực đơn tập trung vào các món cơm quen vị Bắc Bộ như cá kho, thịt rang cháy cạnh, sườn xào chua ngọt, canh cua cà pháo, rau xào theo mùa và cơm niêu.</p>
+
+      <h2>Phù hợp ăn trưa, ăn tối gia đình và đặt cơm văn phòng</h2>
+      <p>Nếu bạn cần một bữa cơm ngon, sạch, dễ ăn cho nhóm đồng nghiệp hoặc gia đình, Cơm Thị Nở nhận tư vấn mâm cơm theo số lượng người, khẩu vị và ngân sách. Khách khu vực <strong>${areaName}</strong> có thể gọi trước để quán chuẩn bị món nóng, đúng giờ.</p>
+
+      <h2>Món được khách gọi nhiều</h2>
+      <ul>
+        <li>Cơm niêu ăn cùng cá kho riềng hoặc thịt rang cháy cạnh.</li>
+        <li>Canh cua cà pháo, rau luộc chấm kho quẹt, món xào theo mùa.</li>
+        <li>Mâm cơm đoàn cho gia đình, văn phòng và nhóm bạn.</li>
+      </ul>
+
+      <h2>Thông tin đặt bàn và đặt cơm</h2>
+      <p><strong>Địa chỉ:</strong> A16TT18 Nguyễn Khuyến, KĐT Văn Quán, Hà Đông, Hà Nội.</p>
+      <p><strong>Hotline:</strong> <a href="tel:0971170103">0971.170.103</a></p>
+      <p><strong>Giờ phục vụ:</strong> 09:00 - 22:00 hằng ngày.</p>
+      <p>Gợi ý thêm: xem thêm <a href="/quan-com-ngon-van-quan">quán cơm ngon Văn Quán</a>, <a href="/com-van-phong-ha-dong">cơm văn phòng Hà Đông</a> và <a href="/com-nieu-ha-dong">cơm niêu Hà Đông</a>.</p>
     </div>
   `;
 }
@@ -76,7 +108,27 @@ async function main() {
   console.log('Seeding SEO Pages and Blog Posts...');
 
   // Landing Pages Data
-  const landingPagesData = [
+  const landingPagesData: Array<{
+    slug: string;
+    title: string;
+    keyword: string;
+    content?: string;
+    displayOrder?: number;
+  }> = [
+    {
+      slug: 'com-ngon-ha-dong',
+      title: 'Cơm Ngon Hà Đông - Cơm Quê Bắc Bộ Tại Văn Quán',
+      keyword: 'cơm ngon Hà Đông',
+      content: generateComNgonLocalContent('Hà Đông', 'cơm ngon Hà Đông'),
+      displayOrder: 0,
+    },
+    {
+      slug: 'com-ngon-van-quan',
+      title: 'Cơm Ngon Văn Quán - Cơm Niêu, Cơm Gia Đình Nguyễn Khuyến',
+      keyword: 'cơm ngon Văn Quán',
+      content: generateComNgonLocalContent('Văn Quán', 'cơm ngon Văn Quán'),
+      displayOrder: 0,
+    },
     { slug: 'com-van-phong-ha-dong', title: 'Cơm Văn Phòng Hà Đông - Giao Tận Nơi, Đảm Bảo Vệ Sinh', keyword: 'cơm văn phòng' },
     { slug: 'com-que-ha-dong', title: 'Cơm Quê Hà Đông - Chuẩn Vị Bắc Bộ Đậm Đà', keyword: 'cơm quê' },
     { slug: 'com-nieu-ha-dong', title: 'Cơm Niêu Hà Đông - Thơm Ngon Nóng Hổi Tròn Vị', keyword: 'cơm niêu' },
@@ -91,26 +143,34 @@ async function main() {
 
   for (const lp of landingPagesData) {
     const existing = await prisma.seoPage.findUnique({ where: { slug: lp.slug } });
+    const pageData = {
+      title: lp.title,
+      slug: lp.slug,
+      excerpt: `Tìm kiếm ${lp.keyword} ngon nhất tại khu vực Hà Đông, Văn Quán, Hà Nội. Cơm Thị Nở mang đến chất lượng tuyệt hảo và dịch vụ chuyên nghiệp.`,
+      content: lp.content || generateLandingPageContent(lp.title, lp.keyword),
+      coverImageUrl: cloudinaryImage,
+      seoTitle: lp.title,
+      seoDescription: `Dịch vụ ${lp.keyword} chuyên nghiệp tại Nguyễn Khuyến, Văn Quán, Hà Đông. Không gian rộng rãi, thực đơn chuẩn vị Bắc Bộ, giá cả hợp lý.`,
+      seoKeywords: `${lp.keyword}, cơm hà đông, cơm văn quán, cơm nguyễn khuyến, quán cơm hà nội`,
+      ogTitle: lp.title,
+      ogDescription: `Dịch vụ ${lp.keyword} chuyên nghiệp tại KĐT Văn Quán, Hà Đông.`,
+      ogImageUrl: cloudinaryImage,
+      schemaType: 'Restaurant',
+      isPublished: true,
+      displayOrder: lp.displayOrder ?? 1,
+    };
+
     if (!existing) {
       await prisma.seoPage.create({
-        data: {
-          title: lp.title,
-          slug: lp.slug,
-          excerpt: `Tìm kiếm ${lp.keyword} ngon nhất tại khu vực Hà Đông, Văn Quán, Hà Nội. Cơm Thị Nở mang đến chất lượng tuyệt hảo và dịch vụ chuyên nghiệp.`,
-          content: generateLandingPageContent(lp.title, lp.keyword),
-          coverImageUrl: cloudinaryImage,
-          seoTitle: lp.title,
-          seoDescription: `Dịch vụ ${lp.keyword} chuyên nghiệp tại Nguyễn Khuyến, Văn Quán, Hà Đông. Không gian rộng rãi, thực đơn chuẩn vị Bắc Bộ, giá cả hợp lý.`,
-          seoKeywords: `${lp.keyword}, cơm hà đông, cơm văn quán, cơm nguyễn khuyến, quán cơm hà nội`,
-          ogTitle: lp.title,
-          ogDescription: `Dịch vụ ${lp.keyword} chuyên nghiệp tại KĐT Văn Quán, Hà Đông.`,
-          ogImageUrl: cloudinaryImage,
-          schemaType: 'WebPage',
-          isPublished: true,
-          displayOrder: 1,
-        }
+        data: pageData
       });
       console.log(`- Created SeoPage: ${lp.slug}`);
+    } else if (['com-ngon-ha-dong', 'com-ngon-van-quan'].includes(lp.slug)) {
+      await prisma.seoPage.update({
+        where: { slug: lp.slug },
+        data: pageData,
+      });
+      console.log(`- Updated SeoPage: ${lp.slug}`);
     }
   }
 
