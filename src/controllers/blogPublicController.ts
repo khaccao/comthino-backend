@@ -3,6 +3,26 @@ import prisma from '../config/prisma';
 import { parsePositiveInt, stripHtml } from '../utils/blog';
 
 const SITE_URL = process.env.PUBLIC_SITE_URL || 'https://comthino.com';
+const STATIC_SEO_PATHS = [
+  '/thuc-don',
+  '/mon-an/ca-kho-rieng',
+  '/mon-an/canh-cua-ca-phao',
+  '/com-ngon-ha-dong',
+  '/com-ngon-van-quan',
+  '/quan-com-ngon-van-quan',
+  '/com-van-phong-ha-dong',
+  '/dat-com-van-phong-ha-dong',
+  '/dat-com-van-phong-van-quan',
+  '/an-gi-o-van-quan-ha-dong',
+  '/quan-com-gia-dinh-ha-dong',
+  '/gioi-thieu',
+  '/lien-he',
+  '/chinh-sach-dat-com-giao-hang',
+  '/chinh-sach-doi-huy-don',
+  '/hoa-don-vat-dat-com-cong-ty',
+  '/an-toan-thuc-pham-nguyen-lieu',
+];
+const STATIC_SEO_PATH_SET = new Set(STATIC_SEO_PATHS);
 
 function publicError(res: Response, error: unknown, fallback: string) {
   console.error(fallback, error);
@@ -198,14 +218,14 @@ export const getSitemapXml = async (_req: Request, res: Response) => {
       }),
     ]);
 
-    const staticUrls = ['/', '/tin-tuc'];
+    const staticUrls = ['/', '/tin-tuc', ...STATIC_SEO_PATHS];
     const urls = [
       ...staticUrls.map((path) => ({
         loc: `${SITE_URL}${path}`,
         lastmod: new Date(),
-        priority: path === '/' ? '1.0' : '0.8',
+        priority: path === '/' ? '1.0' : path === '/tin-tuc' ? '0.8' : '0.9',
       })),
-      ...seoPages.map((page) => ({
+      ...seoPages.filter((page) => !STATIC_SEO_PATH_SET.has(`/${page.slug}`)).map((page) => ({
         loc: `${SITE_URL}/${page.slug}`,
         lastmod: page.updatedAt,
         priority: '0.9', // Landing pages should have high priority
@@ -241,7 +261,10 @@ export const getRobotsTxt = async (_req: Request, res: Response) => {
       orderBy: { displayOrder: 'asc' },
     });
 
-    const landingPageRules = seoPages.map((p) => `Allow: /${p.slug}`);
+    const landingPageRules = [
+      ...STATIC_SEO_PATHS.map((path) => `Allow: ${path}`),
+      ...seoPages.filter((p) => !STATIC_SEO_PATH_SET.has(`/${p.slug}`)).map((p) => `Allow: /${p.slug}`),
+    ];
 
     const content = [
       'User-agent: *',

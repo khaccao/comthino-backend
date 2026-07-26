@@ -202,6 +202,10 @@ async function main() {
 
   // Blog Posts Data
   const blogPostsData = [
+    { slug: 'an-gi-o-van-quan-ha-dong-buoi-trua', title: 'Ăn gì ở Văn Quán Hà Đông buổi trưa?' },
+    { slug: 'top-mon-com-que-bac-bo-de-an-cho-dan-van-phong', title: 'Top món cơm quê Bắc Bộ dễ ăn cho dân văn phòng' },
+    { slug: 'dat-com-doan-ha-dong-can-luu-y-gi', title: 'Đặt cơm đoàn Hà Đông cần lưu ý gì?' },
+    { slug: 'com-trua-van-phong-ha-dong-chon-quan-ngon-sach-the-nao', title: 'Cơm trưa văn phòng Hà Đông: chọn quán ngon sạch thế nào?' },
     { slug: 'top-10-mon-com-que-bac-bo-duoc-yeu-thich-nhat', title: 'Top 10 món cơm quê Bắc Bộ được yêu thích nhất' },
     { slug: 'an-gi-o-van-quan-ha-dong-vao-buoi-trua', title: 'Ăn gì ở Văn Quán Hà Đông vào buổi trưa?' },
     { slug: 'com-van-phong-ha-dong-tieu-chi-chon-quan-ngon', title: 'Cơm văn phòng Hà Đông: Tiêu chí chọn quán ngon và sạch' },

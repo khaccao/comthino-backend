@@ -1,49 +1,30 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <!-- Home -->
   <url>
     <loc>https://comthino.com/</loc>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
-  <!-- Navigation Pages -->
-  <url>
-    <loc>https://comthino.com/#gioi-thieu</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://comthino.com/#menu-sach</loc>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-  </url>
-  <url>
-    <loc>https://comthino.com/#mon-noi-bat</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://comthino.com/#khuyen-mai</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://comthino.com/#thu-vien</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://comthino.com/#dat-com</loc>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-  </url>
-  <!-- Blog Categories (dynamic) -->
   <url>
     <loc>https://comthino.com/tin-tuc</loc>
     <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://comthino.com/thuc-don</loc>
+    <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
-  <!-- Local SEO landing pages -->
+  <url>
+    <loc>https://comthino.com/mon-an/ca-kho-rieng</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <url>
+    <loc>https://comthino.com/mon-an/canh-cua-ca-phao</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+  </url>
   <url>
     <loc>https://comthino.com/com-ngon-ha-dong</loc>
     <changefreq>weekly</changefreq>
@@ -62,30 +43,56 @@
   <url>
     <loc>https://comthino.com/com-van-phong-ha-dong</loc>
     <changefreq>weekly</changefreq>
-    <priority>0.85</priority>
+    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://comthino.com/dat-com-van-phong-ha-dong</loc>
     <changefreq>weekly</changefreq>
     <priority>0.85</priority>
   </url>
-  <!-- Example Blog Posts (static placeholders, actual posts will be crawled automatically) -->
   <url>
-    <loc>https://comthino.com/tin-tuc/com-thi-no-khai-truong-tai-kdt-van-quan-ha-dong</loc>
-    <lastmod>2026-06-22</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <loc>https://comthino.com/dat-com-van-phong-van-quan</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://comthino.com/tin-tuc/goi-y-bua-trua-van-phong-ngon-mieng-tai-ha-dong</loc>
-    <lastmod>2026-06-22</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <loc>https://comthino.com/an-gi-o-van-quan-ha-dong</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://comthino.com/tin-tuc/vi-sao-com-que-bac-bo-luon-duoc-yeu-thich</loc>
-    <lastmod>2026-06-22</lastmod>
+    <loc>https://comthino.com/quan-com-gia-dinh-ha-dong</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://comthino.com/gioi-thieu</loc>
     <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <priority>0.75</priority>
+  </url>
+  <url>
+    <loc>https://comthino.com/lien-he</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.75</priority>
+  </url>
+  <url>
+    <loc>https://comthino.com/chinh-sach-dat-com-giao-hang</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://comthino.com/chinh-sach-doi-huy-don</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://comthino.com/hoa-don-vat-dat-com-cong-ty</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://comthino.com/an-toan-thuc-pham-nguyen-lieu</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
   </url>
 </urlset>
