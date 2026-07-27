@@ -444,6 +444,7 @@ model Supplier {
   updatedAt    DateTime @updatedAt
 
   paymentRequests PaymentRequest[]
+  paymentVouchers PaymentVoucher[]
 
   @@map("Suppliers")
 }
@@ -479,6 +480,7 @@ model PaymentVoucher {
   code              String    @unique
   paymentDate       DateTime  @default(now())
   paymentRequestId  String?
+  supplierId         String?
   recipientName     String
   reason            String    @db.NVarChar(MAX)
   amount            Decimal   @db.Decimal(18, 2)
@@ -493,6 +495,7 @@ model PaymentVoucher {
   updatedAt         DateTime  @updatedAt
 
   paymentRequest  PaymentRequest?  @relation(fields: [paymentRequestId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  supplier        Supplier?        @relation(fields: [supplierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   paymentMethod   PaymentMethod    @relation(fields: [paymentMethodId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   cashAccount     CashAccount      @relation(fields: [cashAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   expenseCategory ExpenseCategory  @relation(fields: [expenseCategoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
