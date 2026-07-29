@@ -134,12 +134,27 @@ async function main() {
     { slug: 'com-nieu-ha-dong', title: 'Cơm Niêu Hà Đông - Thơm Ngon Nóng Hổi Tròn Vị', keyword: 'cơm niêu' },
     { slug: 'com-trua-van-phong-ha-dong', title: 'Cơm Trưa Văn Phòng Hà Đông - Thực Đơn Phong Phú', keyword: 'cơm trưa văn phòng' },
     { slug: 'com-gia-dinh-ha-dong', title: 'Cơm Gia Đình Hà Đông - Không Gian Ấm Cúng sum Vầy', keyword: 'cơm gia đình' },
+    { slug: 'com-van-quan', title: 'Cơm Văn Quán - Quán Cơm Bắc Bộ Tại Nguyễn Khuyến', keyword: 'cơm Văn Quán' },
+    { slug: 'quan-com-ngon-ha-dong', title: 'Quán Cơm Ngon Hà Đông - Cơm Thị Nở Văn Quán', keyword: 'quán cơm ngon Hà Đông' },
+    { slug: 'com-mang-ve-ha-dong', title: 'Cơm Mang Về Hà Đông - Đặt Cơm Nóng Văn Quán', keyword: 'cơm mang về Hà Đông' },
     { slug: 'quan-com-ngon-van-quan', title: 'Quán Cơm Ngon Văn Quán - Điểm Đến Lý Tưởng', keyword: 'quán cơm ngon' },
     { slug: 'com-doan-ha-dong', title: 'Đặt Cơm Đoàn Hà Đông - Chuyên Nghiệp, Rộng Rãi', keyword: 'cơm đoàn' },
     { slug: 'com-cong-ty-ha-dong', title: 'Cơm Công Ty Hà Đông - Suất Ăn An Toàn, Giá Cạnh Tranh', keyword: 'cơm công ty' },
     { slug: 'com-que-bac-bo-ha-dong', title: 'Cơm Quê Bắc Bộ Hà Đông - Hương Vị Truyền Thống', keyword: 'cơm quê Bắc Bộ' },
     { slug: 'dat-com-van-phong-ha-dong', title: 'Đặt Cơm Văn Phòng Hà Đông - Nhanh Chóng, Tiện Lợi', keyword: 'đặt cơm văn phòng' },
   ];
+
+  const prioritySeoSlugs = new Set([
+    'com-ngon-ha-dong',
+    'com-ngon-van-quan',
+    'com-van-phong-ha-dong',
+    'com-que-ha-dong',
+    'com-trua-van-phong-ha-dong',
+    'com-gia-dinh-ha-dong',
+    'com-van-quan',
+    'quan-com-ngon-ha-dong',
+    'com-mang-ve-ha-dong',
+  ]);
 
   for (const lp of landingPagesData) {
     const existing = await prisma.seoPage.findUnique({ where: { slug: lp.slug } });
@@ -165,7 +180,7 @@ async function main() {
         data: pageData
       });
       console.log(`- Created SeoPage: ${lp.slug}`);
-    } else if (['com-ngon-ha-dong', 'com-ngon-van-quan'].includes(lp.slug)) {
+    } else if (prioritySeoSlugs.has(lp.slug)) {
       await prisma.seoPage.update({
         where: { slug: lp.slug },
         data: pageData,
