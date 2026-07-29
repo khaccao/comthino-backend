@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticateJWT, requireAdmin, requirePermission } from '../middlewares/auth';
+import { authenticateJWT, requireAdmin, requirePermission, requireRevenueOtp } from '../middlewares/auth';
 import { upload } from '../middlewares/upload';
 import {
   getDashboard,
@@ -105,6 +105,8 @@ import {
   deleteUser,
   getUserRoles,
   updateUserRoles,
+  setupUserTwoFactor,
+  disableUserTwoFactor,
 } from '../controllers/userController';
 import {
   getRoles,
@@ -166,7 +168,7 @@ const router = Router();
 router.use(authenticateJWT);
 
 // Dashboard
-router.get('/dashboard', getDashboard);
+router.get('/dashboard', requireRevenueOtp, getDashboard);
 
 // POS
 router.get('/pos/bootstrap', getPosBootstrap);
@@ -178,7 +180,7 @@ router.put('/pos/menu-categories/:id', upsertPosMenuCategory);
 router.post('/pos/menu-items', upsertPosMenuItem);
 router.put('/pos/menu-items/:id', upsertPosMenuItem);
 router.post('/pos/orders/open', openPosOrder);
-router.get('/pos/orders/history', getPosHistory);
+router.get('/pos/orders/history', requireRevenueOtp, getPosHistory);
 router.get('/pos/orders/:id', getPosOrderDetail);
 router.put('/pos/orders/:id', updatePosOrder);
 router.post('/pos/orders/:id/items', addPosOrderItem);
@@ -186,7 +188,7 @@ router.put('/pos/orders/:id/items/:itemId', updatePosOrderItem);
 router.delete('/pos/orders/:id/items/:itemId', deletePosOrderItem);
 router.post('/pos/orders/:id/confirm-kitchen', confirmKitchen);
 router.post('/pos/orders/:id/pay', payPosOrder);
-router.get('/pos/dashboard', getPosDashboard);
+router.get('/pos/dashboard', requireRevenueOtp, getPosDashboard);
 router.put('/pos/payment-setting', updatePosPaymentSetting);
 router.put('/pos/print-templates/:code', updatePrintTemplate);
 
@@ -301,6 +303,8 @@ router.put('/users/:id', requirePermission('USER_MANAGEMENT', 'EDIT'), updateUse
 router.patch('/users/:id/lock', requirePermission('USER_MANAGEMENT', 'EDIT'), lockUser);
 router.patch('/users/:id/unlock', requirePermission('USER_MANAGEMENT', 'EDIT'), unlockUser);
 router.delete('/users/:id', requirePermission('USER_MANAGEMENT', 'DELETE'), deleteUser);
+router.post('/users/:id/2fa/setup', requirePermission('USER_MANAGEMENT', 'EDIT'), setupUserTwoFactor);
+router.delete('/users/:id/2fa', requirePermission('USER_MANAGEMENT', 'EDIT'), disableUserTwoFactor);
 router.get('/users/:userId/roles', requirePermission('USER_MANAGEMENT', 'VIEW'), getUserRoles);
 router.put('/users/:userId/roles', requirePermission('USER_MANAGEMENT', 'EDIT'), updateUserRoles);
 

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import * as jwt from 'jsonwebtoken';
 import prisma from '../config/prisma';
+import { verifyTotp } from '../utils/totp';
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -88,4 +89,41 @@ export const requirePermission = (menuCode: string, permissionCode: string) => {
       return res.status(500).json({ message: 'Lỗi kiểm tra quyền hạn.' });
     }
   };
+};
+
+export const requireRevenueOtp = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  if (!req.user?.id) {
+    return res.status(401).json({ message: 'Chưa đăng nhập.' });
+  }
+
+  const otp = String(req.headers['x-otp-code'] || req.query.otp || req.body?.otp || '').trim();
+  const user = await prisma.user.findUnique({
+    where: { id: req.user.id },
+    select: {
+      id: true,
+      twoFactorEnabled: true,
+      twoFactorSecret: true,
+      isActive: true,
+    },
+  });
+
+  if (!user || !user.isActive) {
+    return res.status(401).json({ message: 'Tài khoản không hợp lệ hoặc đã bị khóa.' });
+  }
+
+  if (!user.twoFactorEnabled || !user.twoFactorSecret) {
+    return res.status(403).json({
+      message: 'Tài khoản chưa bật 2FA. Vui lòng yêu cầu Super Admin kích hoạt Google Authenticator trước khi xem doanh thu.',
+      code: 'TWO_FACTOR_REQUIRED',
+    });
+  }
+
+  if (!verifyTotp(user.twoFactorSecret, otp)) {
+    return res.status(403).json({
+      message: 'Mã OTP Google Authenticator không đúng hoặc đã hết hạn.',
+      code: 'INVALID_REVENUE_OTP',
+    });
+  }
+
+  return next();
 };

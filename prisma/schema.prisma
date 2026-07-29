@@ -17,6 +17,9 @@ model User {
   role          String     @default("ADMIN") // For fallback/compatibility
   isActive      Boolean    @default(true)
   isSystemAdmin Boolean    @default(false)
+  twoFactorEnabled Boolean @default(false)
+  twoFactorSecret String?
+  twoFactorActivatedAt DateTime?
   lastLoginAt   DateTime?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt

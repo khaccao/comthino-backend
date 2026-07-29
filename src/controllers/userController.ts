@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import prisma from '../config/prisma';
 import { AuthenticatedRequest } from '../middlewares/auth';
 import { z } from 'zod';
+import { buildOtpAuthUrl, generateTotpSecret } from '../utils/totp';
 
 const userCreateSchema = z.object({
   fullName: z.string().min(2, 'Họ tên phải từ 2 ký tự trở lên'),
@@ -27,9 +28,13 @@ const userUpdateSchema = z.object({
 
 const serializeUser = (user: any) => ({
   ...user,
+  twoFactorSecret: undefined,
   roles: (user.userRoles || []).map((item: any) => item.role.code),
   roleNames: (user.userRoles || []).map((item: any) => item.role.name),
 });
+
+const isSuperAdminRequest = (req: AuthenticatedRequest) =>
+  Boolean(req.user?.isSystemAdmin || req.user?.role === 'SUPERADMIN' || req.user?.roles?.includes('SUPERADMIN'));
 
 export const getUsers = async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -42,6 +47,8 @@ export const getUsers = async (req: AuthenticatedRequest, res: Response) => {
         role: true,
         isActive: true,
         isSystemAdmin: true,
+        twoFactorEnabled: true,
+        twoFactorActivatedAt: true,
         lastLoginAt: true,
         createdAt: true,
         updatedAt: true,
@@ -73,6 +80,8 @@ export const getUserById = async (req: AuthenticatedRequest, res: Response) => {
         role: true,
         isActive: true,
         isSystemAdmin: true,
+        twoFactorEnabled: true,
+        twoFactorActivatedAt: true,
         avatarUrl: true,
         createdAt: true,
         updatedAt: true,
@@ -332,6 +341,94 @@ export const deleteUser = async (req: AuthenticatedRequest, res: Response) => {
     res.json({ success: true, message: 'Đã xóa người dùng thành công.' });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi xóa người dùng.' });
+  }
+};
+
+export const setupUserTwoFactor = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!isSuperAdminRequest(req)) {
+      return res.status(403).json({ message: 'Chỉ Super Admin được kích hoạt 2FA cho tài khoản.' });
+    }
+
+    const { id } = req.params;
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: { id: true, email: true, fullName: true, isActive: true },
+    });
+    if (!user || !user.isActive) {
+      return res.status(404).json({ message: 'Không tìm thấy tài khoản đang hoạt động.' });
+    }
+
+    const secret = generateTotpSecret();
+    await prisma.user.update({
+      where: { id },
+      data: {
+        twoFactorEnabled: true,
+        twoFactorSecret: secret,
+        twoFactorActivatedAt: new Date(),
+        updatedBy: req.user?.email || 'System',
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user?.id,
+        action: 'SETUP_USER_2FA',
+        entity: 'Users',
+        entityId: id,
+        newValueJson: JSON.stringify({ email: user.email }),
+      },
+    });
+
+    res.json({
+      success: true,
+      message: 'Đã tạo mã 2FA cho tài khoản.',
+      data: {
+        secret,
+        otpauthUrl: buildOtpAuthUrl(user.email, secret),
+        user: { id: user.id, email: user.email, fullName: user.fullName },
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi kích hoạt 2FA.' });
+  }
+};
+
+export const disableUserTwoFactor = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!isSuperAdminRequest(req)) {
+      return res.status(403).json({ message: 'Chỉ Super Admin được tắt 2FA cho tài khoản.' });
+    }
+
+    const { id } = req.params;
+    const user = await prisma.user.findUnique({ where: { id }, select: { id: true, email: true } });
+    if (!user) {
+      return res.status(404).json({ message: 'Không tìm thấy tài khoản.' });
+    }
+
+    await prisma.user.update({
+      where: { id },
+      data: {
+        twoFactorEnabled: false,
+        twoFactorSecret: null,
+        twoFactorActivatedAt: null,
+        updatedBy: req.user?.email || 'System',
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user?.id,
+        action: 'DISABLE_USER_2FA',
+        entity: 'Users',
+        entityId: id,
+        newValueJson: JSON.stringify({ email: user.email }),
+      },
+    });
+
+    res.json({ success: true, message: 'Đã tắt 2FA cho tài khoản.' });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi tắt 2FA.' });
   }
 };
 
