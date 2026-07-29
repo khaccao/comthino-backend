@@ -144,20 +144,36 @@ import {
 } from '../controllers/paymentController';
 import {
   createAttendance,
+  createKpiLevel,
+  createKpiRecord,
   createPayrollEmployee,
+  createRewardPenalty,
+  createRewardPenaltyCategory,
   createWorkShift,
   deleteAttendance,
+  deleteKpiLevel,
+  deleteKpiRecord,
   deletePayrollEmployee,
   deletePayrollRun,
+  deleteRewardPenalty,
+  deleteRewardPenaltyCategory,
   deleteWorkShift,
   generatePayrollRun,
   getAttendances,
+  getKpiLevels,
+  getKpiRecords,
   getPayrollBootstrap,
   getPayrollEmployees,
   getPayrollRuns,
+  getRewardPenalties,
+  getRewardPenaltyCategories,
   getWorkShifts,
   updateAttendance,
+  updateKpiLevel,
+  updateKpiRecord,
   updatePayrollEmployee,
+  updateRewardPenalty,
+  updateRewardPenaltyCategory,
   updateWorkShift,
 } from '../controllers/payrollController';
 import { getAuditLogs } from '../controllers/auditController';
@@ -366,6 +382,22 @@ router.delete('/payroll/attendance/:id', requirePermission('PAYROLL', 'DELETE'),
 router.get('/payroll/runs', requirePermission('PAYROLL', 'VIEW'), getPayrollRuns);
 router.post('/payroll/runs/generate', requirePermission('PAYROLL', 'CREATE'), generatePayrollRun);
 router.delete('/payroll/runs/:id', requirePermission('PAYROLL', 'DELETE'), deletePayrollRun);
+router.get('/payroll/kpi-levels', requirePermission('PAYROLL', 'VIEW'), getKpiLevels);
+router.post('/payroll/kpi-levels', requirePermission('PAYROLL', 'CREATE'), createKpiLevel);
+router.put('/payroll/kpi-levels/:id', requirePermission('PAYROLL', 'EDIT'), updateKpiLevel);
+router.delete('/payroll/kpi-levels/:id', requirePermission('PAYROLL', 'DELETE'), deleteKpiLevel);
+router.get('/payroll/kpi-records', requirePermission('PAYROLL', 'VIEW'), getKpiRecords);
+router.post('/payroll/kpi-records', requirePermission('PAYROLL', 'CREATE'), createKpiRecord);
+router.put('/payroll/kpi-records/:id', requirePermission('PAYROLL', 'EDIT'), updateKpiRecord);
+router.delete('/payroll/kpi-records/:id', requirePermission('PAYROLL', 'DELETE'), deleteKpiRecord);
+router.get('/payroll/adjustment-categories', requirePermission('PAYROLL', 'VIEW'), getRewardPenaltyCategories);
+router.post('/payroll/adjustment-categories', requirePermission('PAYROLL', 'CREATE'), createRewardPenaltyCategory);
+router.put('/payroll/adjustment-categories/:id', requirePermission('PAYROLL', 'EDIT'), updateRewardPenaltyCategory);
+router.delete('/payroll/adjustment-categories/:id', requirePermission('PAYROLL', 'DELETE'), deleteRewardPenaltyCategory);
+router.get('/payroll/adjustments', requirePermission('PAYROLL', 'VIEW'), getRewardPenalties);
+router.post('/payroll/adjustments', requirePermission('PAYROLL', 'CREATE'), createRewardPenalty);
+router.put('/payroll/adjustments/:id', requirePermission('PAYROLL', 'EDIT'), updateRewardPenalty);
+router.delete('/payroll/adjustments/:id', requirePermission('PAYROLL', 'DELETE'), deleteRewardPenalty);
 
 // System logs
 router.get('/audit-logs', requirePermission('AUDIT_LOG', 'VIEW'), getAuditLogs);

@@ -542,6 +542,8 @@ model PayrollEmployee {
   defaultShift WorkShift?         @relation(fields: [defaultShiftId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   attendances  AttendanceRecord[]
   payrollLines PayrollLine[]
+  kpiRecords   EmployeeKpiRecord[]
+  adjustments  EmployeeRewardPenalty[]
 
   @@map("PayrollEmployees")
 }
@@ -578,6 +580,10 @@ model PayrollRun {
   status      String   @default("DRAFT")
   totalHours  Decimal  @default(0.0) @db.Decimal(18, 2)
   totalAmount Decimal  @default(0.0) @db.Decimal(18, 2)
+  totalKpiReward Decimal @default(0.0) @db.Decimal(18, 2)
+  totalBonus     Decimal @default(0.0) @db.Decimal(18, 2)
+  totalPenalty   Decimal @default(0.0) @db.Decimal(18, 2)
+  netAmount      Decimal @default(0.0) @db.Decimal(18, 2)
   note        String?  @db.NVarChar(MAX)
   createdBy   String?
   createdAt   DateTime @default(now())
@@ -601,6 +607,12 @@ model PayrollLine {
   totalHours      Decimal @default(0.0) @db.Decimal(18, 2)
   hourlyRate      Decimal @default(0.0) @db.Decimal(18, 2)
   grossAmount     Decimal @default(0.0) @db.Decimal(18, 2)
+  kpiScore        Decimal? @db.Decimal(10, 2)
+  kpiLevelName    String?
+  kpiRewardAmount Decimal @default(0.0) @db.Decimal(18, 2)
+  bonusAmount     Decimal @default(0.0) @db.Decimal(18, 2)
+  penaltyAmount   Decimal @default(0.0) @db.Decimal(18, 2)
+  netAmount       Decimal @default(0.0) @db.Decimal(18, 2)
   note            String? @db.NVarChar(MAX)
 
   payrollRun PayrollRun      @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
@@ -608,4 +620,83 @@ model PayrollLine {
 
   @@unique([payrollRunId, employeeId])
   @@map("PayrollLines")
+}
+
+model KpiLevel {
+  id           String   @id @default(uuid())
+  code         String   @unique
+  name         String
+  minScore     Decimal  @default(0.0) @db.Decimal(10, 2)
+  maxScore     Decimal? @db.Decimal(10, 2)
+  rewardAmount Decimal  @default(0.0) @db.Decimal(18, 2)
+  description  String?  @db.NVarChar(MAX)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  records EmployeeKpiRecord[]
+
+  @@map("KpiLevels")
+}
+
+model EmployeeKpiRecord {
+  id           String   @id @default(uuid())
+  employeeId   String
+  periodStart  DateTime
+  periodEnd    DateTime
+  score        Decimal  @default(0.0) @db.Decimal(10, 2)
+  levelId      String?
+  rewardAmount Decimal  @default(0.0) @db.Decimal(18, 2)
+  note         String?  @db.NVarChar(MAX)
+  status       String   @default("APPROVED") // DRAFT, APPROVED, APPLIED, CANCELLED
+  createdBy    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  employee PayrollEmployee @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  level    KpiLevel?       @relation(fields: [levelId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([employeeId, periodStart, periodEnd])
+  @@map("EmployeeKpiRecords")
+}
+
+model RewardPenaltyCategory {
+  id            String   @id @default(uuid())
+  code          String   @unique
+  name          String
+  type          String   @default("BONUS") // BONUS, PENALTY
+  severity      String?  // INFO, WARNING, MINOR, MAJOR, CRITICAL
+  defaultAmount Decimal  @default(0.0) @db.Decimal(18, 2)
+  description   String?  @db.NVarChar(MAX)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  adjustments EmployeeRewardPenalty[]
+
+  @@map("RewardPenaltyCategories")
+}
+
+model EmployeeRewardPenalty {
+  id            String   @id @default(uuid())
+  employeeId    String
+  categoryId    String?
+  type          String   @default("BONUS") // BONUS, PENALTY
+  severity      String?
+  incidentDate  DateTime
+  amount        Decimal  @default(0.0) @db.Decimal(18, 2)
+  reason        String   @db.NVarChar(MAX)
+  status        String   @default("PENDING") // PENDING, APPLIED, CANCELLED
+  appliedAt     DateTime?
+  note          String?  @db.NVarChar(MAX)
+  createdBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  employee PayrollEmployee        @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  category RewardPenaltyCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([employeeId, incidentDate])
+  @@index([type, status])
+  @@map("EmployeeRewardPenalties")
 }

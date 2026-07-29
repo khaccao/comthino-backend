@@ -673,6 +673,54 @@ async function main() {
     });
   }
 
+  console.log('- Seeding Payroll KPI and Reward/Penalty Master Data...');
+  const kpiLevels = [
+    { code: 'KPI_C', name: 'Cấp C - Cần cải thiện', minScore: 0, maxScore: 69, rewardAmount: 0, description: 'Chưa đạt KPI thưởng.' },
+    { code: 'KPI_B', name: 'Cấp B - Đạt yêu cầu', minScore: 70, maxScore: 84, rewardAmount: 100000, description: 'Đạt KPI cơ bản trong kỳ.' },
+    { code: 'KPI_A', name: 'Cấp A - Tốt', minScore: 85, maxScore: 94, rewardAmount: 250000, description: 'Hiệu suất tốt, ít lỗi, hỗ trợ đội nhóm.' },
+    { code: 'KPI_S', name: 'Cấp S - Xuất sắc', minScore: 95, maxScore: null, rewardAmount: 500000, description: 'Hiệu suất nổi bật, chủ động và ổn định.' },
+  ];
+
+  for (const level of kpiLevels) {
+    await prisma.kpiLevel.upsert({
+      where: { code: level.code },
+      update: {
+        name: level.name,
+        minScore: level.minScore,
+        maxScore: level.maxScore,
+        rewardAmount: level.rewardAmount,
+        description: level.description,
+        isActive: true,
+      },
+      create: { ...level, isActive: true },
+    });
+  }
+
+  const adjustmentCategories = [
+    { code: 'BONUS_SERVICE', name: 'Thưởng phục vụ tốt', type: 'BONUS', severity: 'INFO', defaultAmount: 100000, description: 'Nhân viên order/phục vụ được khách khen hoặc xử lý ca tốt.' },
+    { code: 'BONUS_KITCHEN', name: 'Thưởng bếp ra món tốt', type: 'BONUS', severity: 'INFO', defaultAmount: 150000, description: 'Bếp ra món đúng chuẩn, ít trả món, hỗ trợ tốt giờ cao điểm.' },
+    { code: 'BONUS_MANAGER', name: 'Thưởng quản lý ca', type: 'BONUS', severity: 'INFO', defaultAmount: 200000, description: 'Quản lý ca vận hành tốt, kiểm soát tồn, tiền và nhân sự.' },
+    { code: 'PENALTY_WARNING', name: 'Cảnh cáo vi phạm quy trình', type: 'PENALTY', severity: 'WARNING', defaultAmount: 0, description: 'Nhắc nhở/cảnh cáo, chưa trừ tiền.' },
+    { code: 'PENALTY_LATE', name: 'Phạt đi muộn/về sớm', type: 'PENALTY', severity: 'MINOR', defaultAmount: 50000, description: 'Áp dụng khi đi muộn, về sớm hoặc không bàn giao ca.' },
+    { code: 'PENALTY_ORDER_ERROR', name: 'Phạt sai order', type: 'PENALTY', severity: 'MAJOR', defaultAmount: 100000, description: 'Sai món, thiếu món, ghi chú sai làm ảnh hưởng khách hoặc bếp.' },
+    { code: 'PENALTY_CASH_STOCK', name: 'Phạt lệch tiền/tồn', type: 'PENALTY', severity: 'CRITICAL', defaultAmount: 200000, description: 'Sai lệch tiền, hàng tồn hoặc thất thoát cần ghi nhận.' },
+  ];
+
+  for (const category of adjustmentCategories) {
+    await prisma.rewardPenaltyCategory.upsert({
+      where: { code: category.code },
+      update: {
+        name: category.name,
+        type: category.type,
+        severity: category.severity,
+        defaultAmount: category.defaultAmount,
+        description: category.description,
+        isActive: true,
+      },
+      create: { ...category, isActive: true },
+    });
+  }
+
   console.log('Seeding completed successfully!');
 }
 
