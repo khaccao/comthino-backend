@@ -411,6 +411,7 @@ SELECT TOP 20 * FROM dbo.ComKitchenStockEntries ORDER BY EntryDate DESC, Created
 SELECT
   i.Id,
   i.Name,
+  i.Category,
   i.UnitName,
   i.CurrentStock,
   i.MinStock,
@@ -419,7 +420,7 @@ SELECT
 FROM dbo.ComKitchenIngredients i
 LEFT JOIN dbo.ComKitchenStockMovements m ON m.IngredientId=i.Id
 WHERE i.IsActive=1
-GROUP BY i.Id, i.Name, i.UnitName, i.CurrentStock, i.MinStock
+GROUP BY i.Id, i.Name, i.Category, i.UnitName, i.CurrentStock, i.MinStock
 ORDER BY i.Category, i.Name;
 
 SELECT
