@@ -353,7 +353,7 @@ export const getSupplierDueAlerts = async (req: AuthenticatedRequest, res: Respo
 export const createSupplier = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const validated = normalizeSupplierBody(req.body);
-    const item = await prisma.supplier.create({ data: validated });
+    const item = await prisma.supplier.create({ data: { ...validated, currentDebt: 0, paymentDueDate: null } });
     res.status(201).json({ success: true, item: serializeSupplier(item) });
   } catch (error: any) {
     if (error instanceof z.ZodError) return res.status(400).json({ message: error.errors[0].message });
@@ -366,7 +366,8 @@ export const updateSupplier = async (req: AuthenticatedRequest, res: Response) =
   try {
     const { id } = req.params;
     const validated = normalizeSupplierBody(req.body);
-    await prisma.supplier.update({ where: { id }, data: validated });
+    const { currentDebt, paymentDueDate, ...supplierProfile } = validated;
+    await prisma.supplier.update({ where: { id }, data: supplierProfile });
     res.json({ success: true, message: 'Cập nhật thành công.' });
   } catch (error: any) {
     if (error instanceof z.ZodError) return res.status(400).json({ message: error.errors[0].message });
