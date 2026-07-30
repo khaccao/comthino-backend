@@ -6,9 +6,13 @@ import { z } from 'zod';
 // Zod schemas
 const supplierSchema = z.object({
   name: z.string().min(1, 'Tên nhà cung cấp không được để trống'),
+  contactName: z.string().optional().nullable(),
   phone: z.string().optional().nullable(),
   taxCode: z.string().optional().nullable(),
   address: z.string().optional().nullable(),
+  bankName: z.string().optional().nullable(),
+  bankAccountNo: z.string().optional().nullable(),
+  bankAccountName: z.string().optional().nullable(),
   paymentTerm: z.string().optional().nullable(),
   paymentTermDays: z.number().int().min(0).optional().nullable(),
   paymentDueDate: z.string().optional().nullable(),
@@ -30,6 +34,7 @@ const paymentVoucherSchema = z.object({
   paymentDate: z.string().optional().nullable(),
   paymentRequestId: z.string().uuid().optional().nullable(),
   supplierId: z.string().uuid('Nhà cung cấp không hợp lệ').optional().nullable(),
+  supplierDebtId: z.string().uuid('Phiếu công nợ không hợp lệ').optional().nullable(),
   recipientName: z.string().min(1, 'Người nhận tiền không được để trống'),
   reason: z.string().min(1, 'Lý do chi không được để trống'),
   amount: z.number().positive('Số tiền phải lớn hơn 0'),
@@ -38,6 +43,17 @@ const paymentVoucherSchema = z.object({
   expenseCategoryId: z.string().uuid('Danh mục khoản chi không hợp lệ'),
   attachmentUrl: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+});
+
+const supplierDebtSchema = z.object({
+  supplierId: z.string().uuid('Nhà cung cấp không hợp lệ'),
+  debtDate: z.string().optional().nullable(),
+  dueDate: z.string().optional().nullable(),
+  title: z.string().min(1, 'Nội dung công nợ không được để trống'),
+  description: z.string().optional().nullable(),
+  amount: z.number().positive('Số tiền công nợ phải lớn hơn 0'),
+  attachmentUrl: z.string().optional().nullable(),
+  status: z.string().optional(),
 });
 
 const normalizePaymentRequestBody = (body: any) => ({
@@ -49,6 +65,7 @@ const normalizePaymentVoucherBody = (body: any) => ({
   ...body,
   paymentDate: body.paymentDate || body.voucherDate || undefined,
   paymentRequestId: body.paymentRequestId || body.requestId || undefined,
+  supplierDebtId: body.supplierDebtId || body.debtId || undefined,
   supplierId: body.supplierId || undefined,
   recipientName: body.recipientName || body.receiverName,
   expenseCategoryId: body.expenseCategoryId || body.categoryId,
@@ -160,6 +177,63 @@ const serializeSupplier = (item: any) => {
   };
 };
 
+const serializeSupplierDebt = (item: any) => {
+  const amount = Number(item.amount || 0);
+  const paidAmount = Number(item.paidAmount || 0);
+  const remainingAmount = Number(item.remainingAmount ?? Math.max(amount - paidAmount, 0));
+  const dueDate = item.dueDate ? new Date(item.dueDate) : null;
+  const dueDateKey = dueDate ? toVietnamDateKey(dueDate) : null;
+  const todayKey = todayVietnamKey();
+  const daysUntilDue = dueDateKey
+    ? Math.round((dateKeyToUtc(dueDateKey) - dateKeyToUtc(todayKey)) / 86400000)
+    : null;
+  const dueStatus = item.status === 'PAID' || item.status === 'CANCELLED' || remainingAmount <= 0 || !dueDateKey
+    ? 'NONE'
+    : daysUntilDue! < 0
+      ? 'OVERDUE'
+      : daysUntilDue === 0
+        ? 'DUE_TODAY'
+        : daysUntilDue! <= 3
+          ? 'DUE_SOON'
+          : 'UPCOMING';
+
+  return {
+    ...item,
+    amount,
+    paidAmount,
+    remainingAmount,
+    debtDate: item.debtDate ? toVietnamDateKey(new Date(item.debtDate)) : null,
+    dueDate: dueDateKey,
+    daysUntilDue,
+    dueStatus,
+    dueStatusLabel: dueStatus === 'OVERDUE'
+      ? `Quá hạn ${Math.abs(daysUntilDue || 0)} ngày`
+      : dueStatus === 'DUE_TODAY'
+        ? 'Đến hạn hôm nay'
+        : dueStatus === 'DUE_SOON'
+          ? `Còn ${daysUntilDue} ngày`
+          : dueDateKey
+            ? `Còn ${daysUntilDue} ngày`
+            : '-',
+  };
+};
+
+const syncSupplierDebtSummary = async (tx: any, supplierId: string) => {
+  const debts = await tx.supplierDebtNote.findMany({
+    where: { supplierId, status: { not: 'CANCELLED' } },
+    select: { remainingAmount: true, dueDate: true, status: true },
+  });
+  const currentDebt = debts.reduce((sum: number, item: any) => sum + Number(item.remainingAmount || 0), 0);
+  const nearestDue = debts
+    .filter((item: any) => Number(item.remainingAmount || 0) > 0 && item.dueDate && item.status !== 'PAID')
+    .sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0]?.dueDate || null;
+
+  await tx.supplier.update({
+    where: { id: supplierId },
+    data: { currentDebt, paymentDueDate: currentDebt > 0 ? nearestDue : null },
+  });
+};
+
 const normalizeSupplierBody = (body: any) => {
   const normalized = {
     ...body,
@@ -189,9 +263,13 @@ const normalizeSupplierBody = (body: any) => {
 
   return {
     name: validated.name,
+    contactName: validated.contactName || null,
     phone: validated.phone || null,
     taxCode: validated.taxCode || null,
     address: validated.address || null,
+    bankName: validated.bankName || null,
+    bankAccountNo: validated.bankAccountNo || null,
+    bankAccountName: validated.bankAccountName || null,
     paymentTerm: validated.paymentTerm || (validated.paymentTermDays ? `${validated.paymentTermDays} ngày` : null),
     paymentTermDays: validated.paymentTermDays,
     paymentDueDate: dueDate,
@@ -214,6 +292,8 @@ const serializeVoucher = (item: any) => ({
   voucherDate: item.paymentDate,
   paymentRequestId: item.paymentRequestId,
   requestId: item.paymentRequestId,
+  supplierDebtId: item.supplierDebtId,
+  supplierDebt: item.supplierDebt,
   supplierId: item.supplierId || item.paymentRequest?.supplierId || null,
   supplier: item.supplier || item.paymentRequest?.supplier || null,
   receiverName: item.recipientName,
@@ -302,6 +382,175 @@ export const deleteSupplier = async (req: AuthenticatedRequest, res: Response) =
     res.json({ success: true, message: 'Đã xóa nhà cung cấp.' });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi xóa.' });
+  }
+};
+
+// SUPPLIER DEBT NOTES
+export const getSupplierDebts = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { supplierId, status, from, to } = req.query;
+    const where: any = {};
+    if (supplierId) where.supplierId = String(supplierId);
+    if (status && status !== 'ALL') where.status = String(status);
+    if (from || to) {
+      where.debtDate = {};
+      if (from) where.debtDate.gte = parseSupplierDueDate(String(from));
+      if (to) {
+        const end = parseSupplierDueDate(String(to));
+        end?.setHours(23, 59, 59, 999);
+        where.debtDate.lte = end;
+      }
+    }
+
+    const items = await prisma.supplierDebtNote.findMany({
+      where,
+      include: {
+        supplier: true,
+        paymentVouchers: {
+          select: { id: true, code: true, amount: true, status: true, paymentDate: true },
+          orderBy: { paymentDate: 'desc' },
+        },
+      },
+      orderBy: [{ debtDate: 'desc' }, { createdAt: 'desc' }],
+    });
+    res.json({ success: true, items: items.map(serializeSupplierDebt) });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || 'Lỗi tải phiếu công nợ nhà cung cấp.' });
+  }
+};
+
+export const getSupplierDebtSummary = async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    const suppliers = await prisma.supplier.findMany({
+      where: { isActive: true },
+      include: {
+        debtNotes: {
+          where: { status: { not: 'CANCELLED' } },
+          orderBy: [{ dueDate: 'asc' }, { debtDate: 'desc' }],
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    const items = suppliers.map((supplier) => {
+      const debts = supplier.debtNotes.map(serializeSupplierDebt);
+      const totalDebt = debts.reduce((sum, item) => sum + item.amount, 0);
+      const totalPaid = debts.reduce((sum, item) => sum + item.paidAmount, 0);
+      const remainingDebt = debts.reduce((sum, item) => sum + item.remainingAmount, 0);
+      const openDebts = debts.filter(item => item.remainingAmount > 0 && item.status !== 'PAID');
+      return {
+        supplier,
+        totalDebt,
+        totalPaid,
+        remainingDebt,
+        debtCount: debts.length,
+        openDebtCount: openDebts.length,
+        nearestDueDate: openDebts[0]?.dueDate || null,
+        nearestDueStatus: openDebts[0]?.dueStatus || 'NONE',
+        nearestDueStatusLabel: openDebts[0]?.dueStatusLabel || '-',
+      };
+    });
+
+    res.json({ success: true, items });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || 'Lỗi tải tổng hợp công nợ.' });
+  }
+};
+
+export const createSupplierDebt = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const validated = supplierDebtSchema.parse(req.body);
+    const debtDate = parseSupplierDueDate(validated.debtDate || todayVietnamKey()) || new Date();
+    const dueDate = parseSupplierDueDate(validated.dueDate || null);
+    const count = await prisma.supplierDebtNote.count();
+    const code = `CN${String(count + 1).padStart(4, '0')}`;
+
+    const item = await prisma.$transaction(async (tx) => {
+      const debt = await tx.supplierDebtNote.create({
+        data: {
+          code,
+          supplierId: validated.supplierId,
+          debtDate,
+          dueDate,
+          title: validated.title,
+          description: validated.description || null,
+          amount: validated.amount,
+          paidAmount: 0,
+          remainingAmount: validated.amount,
+          status: validated.status || 'UNPAID',
+          attachmentUrl: validated.attachmentUrl || null,
+          createdById: req.user?.id,
+        },
+        include: { supplier: true, paymentVouchers: true },
+      });
+      await syncSupplierDebtSummary(tx, validated.supplierId);
+      return debt;
+    });
+
+    res.status(201).json({ success: true, item: serializeSupplierDebt(item) });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: error.errors[0].message });
+    res.status(500).json({ message: error.message || 'Lỗi tạo phiếu công nợ.' });
+  }
+};
+
+export const updateSupplierDebt = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const current = await prisma.supplierDebtNote.findUnique({ where: { id: req.params.id } });
+    if (!current) return res.status(404).json({ message: 'Không tìm thấy phiếu công nợ.' });
+    if (current.status === 'PAID') return res.status(400).json({ message: 'Không sửa phiếu công nợ đã thanh toán hết.' });
+
+    const data = supplierDebtSchema.partial().parse(req.body);
+    const amount = data.amount ?? Number(current.amount);
+    const paidAmount = Number(current.paidAmount || 0);
+    if (amount < paidAmount) return res.status(400).json({ message: 'Số tiền công nợ không được nhỏ hơn số tiền đã trả.' });
+
+    const item = await prisma.$transaction(async (tx) => {
+      const updated = await tx.supplierDebtNote.update({
+        where: { id: req.params.id },
+        data: {
+          supplierId: data.supplierId || current.supplierId,
+          debtDate: data.debtDate ? parseSupplierDueDate(data.debtDate)! : current.debtDate,
+          dueDate: data.dueDate !== undefined ? parseSupplierDueDate(data.dueDate) : current.dueDate,
+          title: data.title || current.title,
+          description: data.description !== undefined ? data.description : current.description,
+          amount,
+          remainingAmount: Math.max(amount - paidAmount, 0),
+          status: data.status || (amount - paidAmount <= 0 ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'UNPAID'),
+          attachmentUrl: data.attachmentUrl !== undefined ? data.attachmentUrl : current.attachmentUrl,
+        },
+        include: { supplier: true, paymentVouchers: true },
+      });
+      await syncSupplierDebtSummary(tx, current.supplierId);
+      if (data.supplierId && data.supplierId !== current.supplierId) await syncSupplierDebtSummary(tx, data.supplierId);
+      return updated;
+    });
+
+    res.json({ success: true, item: serializeSupplierDebt(item) });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: error.errors[0].message });
+    res.status(500).json({ message: error.message || 'Lỗi cập nhật phiếu công nợ.' });
+  }
+};
+
+export const deleteSupplierDebt = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const current = await prisma.supplierDebtNote.findUnique({
+      where: { id: req.params.id },
+      include: { paymentVouchers: { where: { status: 'POSTED' } } },
+    });
+    if (!current) return res.status(404).json({ message: 'Không tìm thấy phiếu công nợ.' });
+    if (current.paymentVouchers.length > 0 || Number(current.paidAmount || 0) > 0) {
+      return res.status(400).json({ message: 'Phiếu công nợ đã có thanh toán, không thể xóa.' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.supplierDebtNote.update({ where: { id: req.params.id }, data: { status: 'CANCELLED', remainingAmount: 0 } });
+      await syncSupplierDebtSummary(tx, current.supplierId);
+    });
+    res.json({ success: true, message: 'Đã hủy phiếu công nợ.' });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || 'Lỗi hủy phiếu công nợ.' });
   }
 };
 
@@ -436,6 +685,7 @@ export const getPaymentVouchers = async (req: AuthenticatedRequest, res: Respons
     const items = await prisma.paymentVoucher.findMany({
       include: {
         paymentRequest: { include: { supplier: true } },
+        supplierDebt: { include: { supplier: true } },
         supplier: true,
         paymentMethod: true,
         cashAccount: true,
@@ -463,15 +713,30 @@ export const createPaymentVoucher = async (req: AuthenticatedRequest, res: Respo
           include: { supplier: true },
         })
         : null;
+      const supplierDebt = validated.supplierDebtId
+        ? await tx.supplierDebtNote.findUnique({
+          where: { id: validated.supplierDebtId },
+          include: { supplier: true },
+        })
+        : null;
 
       if (validated.paymentRequestId && !request) {
         throw new Error('Không tìm thấy đề nghị chi.');
       }
+      if (validated.supplierDebtId && !supplierDebt) {
+        throw new Error('Không tìm thấy phiếu công nợ.');
+      }
       if (request && request.status !== 'APPROVED') {
         throw new Error('Chỉ được lập phiếu chi từ đề nghị đã duyệt.');
       }
+      if (supplierDebt && !['UNPAID', 'PARTIAL'].includes(supplierDebt.status)) {
+        throw new Error('Phiếu công nợ này không còn trạng thái cần thanh toán.');
+      }
+      if (supplierDebt && validated.amount > Number(supplierDebt.remainingAmount || 0)) {
+        throw new Error('Số tiền thanh toán vượt quá số còn nợ của phiếu công nợ.');
+      }
 
-      const supplierId = validated.supplierId || request?.supplierId || null;
+      const supplierId = validated.supplierId || supplierDebt?.supplierId || request?.supplierId || null;
       if (supplierId) {
         const supplier = await tx.supplier.findUnique({
           where: { id: supplierId },
@@ -489,6 +754,7 @@ export const createPaymentVoucher = async (req: AuthenticatedRequest, res: Respo
           code,
           paymentDate: parsePaymentDate(validated.paymentDate),
           paymentRequestId: validated.paymentRequestId,
+          supplierDebtId: validated.supplierDebtId,
           supplierId,
           recipientName: validated.recipientName,
           reason: validated.reason,
@@ -529,7 +795,7 @@ export const postPaymentVoucher = async (req: AuthenticatedRequest, res: Respons
     const { id } = req.params;
     const voucher = await prisma.paymentVoucher.findUnique({
       where: { id },
-      include: { paymentRequest: true },
+      include: { paymentRequest: true, supplierDebt: true },
     });
 
     if (!voucher) return res.status(404).json({ message: 'Không tìm thấy phiếu chi.' });
@@ -546,9 +812,24 @@ export const postPaymentVoucher = async (req: AuthenticatedRequest, res: Respons
         data: { balance: { decrement: voucher.amount } },
       });
 
-      // 2. Update Supplier Debt if voucher has a supplier directly or via payment request
+      // 2. Update supplier debt note and summary if this voucher pays a debt
+      if (voucher.supplierDebtId && voucher.supplierDebt) {
+        const nextPaid = Number(voucher.supplierDebt.paidAmount || 0) + Number(voucher.amount || 0);
+        const nextRemaining = Math.max(Number(voucher.supplierDebt.amount || 0) - nextPaid, 0);
+        await tx.supplierDebtNote.update({
+          where: { id: voucher.supplierDebtId },
+          data: {
+            paidAmount: nextPaid,
+            remainingAmount: nextRemaining,
+            status: nextRemaining <= 0 ? 'PAID' : 'PARTIAL',
+          },
+        });
+        await syncSupplierDebtSummary(tx, voucher.supplierDebt.supplierId);
+      }
+
+      // 3. Update legacy Supplier Debt if voucher has a supplier directly or via payment request
       const supplierId = voucher.supplierId || voucher.paymentRequest?.supplierId;
-      if (supplierId) {
+      if (supplierId && !voucher.supplierDebtId) {
         const supplier = await tx.supplier.findUnique({ where: { id: supplierId } });
         if (!supplier) throw new Error('Không tìm thấy nhà cung cấp để cập nhật công nợ.');
         const nextDebt = Math.max(Number(supplier.currentDebt || 0) - Number(voucher.amount || 0), 0);
@@ -561,7 +842,7 @@ export const postPaymentVoucher = async (req: AuthenticatedRequest, res: Respons
         });
       }
 
-      // 3. Mark voucher as POSTED
+      // 4. Mark voucher as POSTED
       await tx.paymentVoucher.update({
         where: { id },
         data: { status: 'POSTED' },

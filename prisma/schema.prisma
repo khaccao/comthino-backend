@@ -434,9 +434,13 @@ model CashAccount {
 model Supplier {
   id           String   @id @default(uuid())
   name         String
+  contactName  String?
   phone        String?
   taxCode      String?
   address      String?
+  bankName     String?
+  bankAccountNo String?
+  bankAccountName String?
   currentDebt  Decimal  @default(0.0) @db.Decimal(18, 2)
   paymentTerm  String?
   paymentTermDays Int?
@@ -448,8 +452,34 @@ model Supplier {
 
   paymentRequests PaymentRequest[]
   paymentVouchers PaymentVoucher[]
+  debtNotes       SupplierDebtNote[]
 
   @@map("Suppliers")
+}
+
+model SupplierDebtNote {
+  id             String   @id @default(uuid())
+  code           String   @unique
+  supplierId     String
+  debtDate       DateTime
+  dueDate        DateTime?
+  title          String
+  description    String?  @db.NVarChar(MAX)
+  amount         Decimal  @db.Decimal(18, 2)
+  paidAmount     Decimal  @default(0.0) @db.Decimal(18, 2)
+  remainingAmount Decimal @default(0.0) @db.Decimal(18, 2)
+  status         String   @default("UNPAID") // UNPAID, PARTIAL, PAID, CANCELLED
+  attachmentUrl  String?  @db.NVarChar(MAX)
+  createdById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  paymentVouchers PaymentVoucher[]
+
+  @@index([supplierId, debtDate])
+  @@index([dueDate, status])
+  @@map("SupplierDebtNotes")
 }
 
 model PaymentRequest {
@@ -484,6 +514,7 @@ model PaymentVoucher {
   paymentDate       DateTime  @default(now())
   paymentRequestId  String?
   supplierId         String?
+  supplierDebtId     String?
   recipientName     String
   reason            String    @db.NVarChar(MAX)
   amount            Decimal   @db.Decimal(18, 2)
@@ -499,6 +530,7 @@ model PaymentVoucher {
 
   paymentRequest  PaymentRequest?  @relation(fields: [paymentRequestId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   supplier        Supplier?        @relation(fields: [supplierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  supplierDebt    SupplierDebtNote? @relation(fields: [supplierDebtId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   paymentMethod   PaymentMethod    @relation(fields: [paymentMethodId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   cashAccount     CashAccount      @relation(fields: [cashAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   expenseCategory ExpenseCategory  @relation(fields: [expenseCategoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)

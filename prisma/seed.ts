@@ -586,6 +586,7 @@ async function main() {
     CASH_REPORT: view,
     PROFIT_REPORT: view,
     SUPPLIER_CATEGORY: maintain,
+    SUPPLIER_DEBT: maintain,
     PAYROLL: maintain,
   });
 
@@ -600,7 +601,7 @@ async function main() {
     CASH_REPORT: view,
     PROFIT_REPORT: view,
     SUPPLIER_CATEGORY: maintain,
-    SUPPLIER_DEBT: view,
+    SUPPLIER_DEBT: maintain,
     KITCHEN_INVENTORY: ['VIEW', 'CREATE', 'EDIT', 'EXPORT'],
     PAYROLL: ['VIEW', 'CREATE', 'EDIT', 'EXPORT'],
   });
@@ -621,6 +622,7 @@ async function main() {
     AUDIT_LOG: view,
     SYSTEM_CONFIG: maintain,
     SUPPLIER_CATEGORY: maintain,
+    SUPPLIER_DEBT: maintain,
     KITCHEN_INVENTORY: maintain,
     MENU_MANAGEMENT: maintain,
     DISH_CATEGORY: maintain,

@@ -148,9 +148,14 @@ import {
   getCashAccounts,
   getSuppliers,
   getSupplierDueAlerts,
+  getSupplierDebts,
+  getSupplierDebtSummary,
   createSupplier,
+  createSupplierDebt,
   updateSupplier,
+  updateSupplierDebt,
   deleteSupplier,
+  deleteSupplierDebt,
 } from '../controllers/paymentController';
 import {
   createAttendance,
@@ -372,6 +377,11 @@ router.get('/suppliers/due-alerts', requirePermission('SUPPLIER_CATEGORY', 'VIEW
 router.post('/suppliers', requirePermission('SUPPLIER_CATEGORY', 'CREATE'), createSupplier);
 router.put('/suppliers/:id', requirePermission('SUPPLIER_CATEGORY', 'EDIT'), updateSupplier);
 router.delete('/suppliers/:id', requirePermission('SUPPLIER_CATEGORY', 'DELETE'), deleteSupplier);
+router.get('/supplier-debts', requirePermission('SUPPLIER_DEBT', 'VIEW'), getSupplierDebts);
+router.get('/supplier-debts/summary', requirePermission('SUPPLIER_DEBT', 'VIEW'), getSupplierDebtSummary);
+router.post('/supplier-debts', requirePermission('SUPPLIER_DEBT', 'CREATE'), createSupplierDebt);
+router.put('/supplier-debts/:id', requirePermission('SUPPLIER_DEBT', 'EDIT'), updateSupplierDebt);
+router.delete('/supplier-debts/:id', requirePermission('SUPPLIER_DEBT', 'DELETE'), deleteSupplierDebt);
 
 // Payment Requests
 router.get('/payments/requests', requirePermission('PAYMENT_REQUEST', 'VIEW'), getPaymentRequests);
