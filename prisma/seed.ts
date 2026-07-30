@@ -472,6 +472,7 @@ async function main() {
     { code: 'DISH_PRICE', name: 'Giá bán món', path: '/admin/menu-items/prices', icon: 'Tag', sortOrder: 23 },
     { code: 'TABLE_MANAGEMENT', name: 'Bàn & Phòng', path: '/admin/tables', icon: 'Grid3X3', sortOrder: 24 },
     { code: 'ORDER_POS', name: 'POS bán hàng', path: '/admin/pos', icon: 'Monitor', sortOrder: 25 },
+    { code: 'KITCHEN_INVENTORY', name: 'Kho bếp & định lượng', path: '/admin/kitchen-inventory', icon: 'Package', sortOrder: 26 },
     { code: 'STAFF_MANAGEMENT', name: 'Quản lý nhân viên', path: '/admin/staff', icon: 'Users2', sortOrder: 26 },
     { code: 'CUSTOMER_MANAGEMENT', name: 'Quản lý khách hàng', path: '/admin/customers', icon: 'Heart', sortOrder: 27 },
     { code: 'PAYROLL', name: 'Chấm công & bảng lương', path: '/admin/payroll', icon: 'CalendarClock', sortOrder: 28 },
@@ -553,6 +554,7 @@ async function main() {
   await grantRolePermissions('KITCHEN', {
     DASHBOARD: view,
     ORDER_POS: view,
+    KITCHEN_INVENTORY: ['VIEW', 'CREATE'],
   });
 
   await grantRolePermissions('STAFF', {
@@ -564,6 +566,7 @@ async function main() {
   await grantRolePermissions('CASHIER', {
     DASHBOARD: view,
     ORDER_POS: pos,
+    KITCHEN_INVENTORY: ['VIEW', 'CREATE'],
     PAYMENT_REQUEST: entry,
     SUPPLIER_CATEGORY: view,
   });
@@ -572,6 +575,7 @@ async function main() {
     DASHBOARD: view,
     ORDER_POS: pos,
     TABLE_MANAGEMENT: maintain,
+    KITCHEN_INVENTORY: maintain,
     MENU_MANAGEMENT: maintain,
     DISH_CATEGORY: maintain,
     PAYMENT_REQUEST: maintain,
@@ -597,6 +601,7 @@ async function main() {
     PROFIT_REPORT: view,
     SUPPLIER_CATEGORY: maintain,
     SUPPLIER_DEBT: view,
+    KITCHEN_INVENTORY: ['VIEW', 'CREATE', 'EDIT', 'EXPORT'],
     PAYROLL: ['VIEW', 'CREATE', 'EDIT', 'EXPORT'],
   });
 
@@ -616,6 +621,7 @@ async function main() {
     AUDIT_LOG: view,
     SYSTEM_CONFIG: maintain,
     SUPPLIER_CATEGORY: maintain,
+    KITCHEN_INVENTORY: maintain,
     MENU_MANAGEMENT: maintain,
     DISH_CATEGORY: maintain,
     PAYROLL: maintain,

@@ -104,11 +104,18 @@ export const requireRevenueOtp = async (req: AuthenticatedRequest, res: Response
       twoFactorEnabled: true,
       twoFactorSecret: true,
       isActive: true,
+      isSystemAdmin: true,
+      role: true,
+      userRoles: { include: { role: true } },
     },
   });
 
   if (!user || !user.isActive) {
     return res.status(401).json({ message: 'Tài khoản không hợp lệ hoặc đã bị khóa.' });
+  }
+
+  if (user.isSystemAdmin || user.role === 'SUPERADMIN' || user.userRoles.some((item) => item.role.code === 'SUPERADMIN')) {
+    return next();
   }
 
   if (!user.twoFactorEnabled || !user.twoFactorSecret) {

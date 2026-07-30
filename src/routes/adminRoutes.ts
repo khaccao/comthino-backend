@@ -93,6 +93,16 @@ import {
   upsertPosMenuItem,
   upsertPosTable,
 } from '../controllers/posAdminController';
+import {
+  createKitchenStockEntry,
+  deleteKitchenIngredient,
+  deleteKitchenRecipe,
+  deleteKitchenUnit,
+  getKitchenInventoryBootstrap,
+  upsertKitchenIngredient,
+  upsertKitchenRecipe,
+  upsertKitchenUnit,
+} from '../controllers/kitchenInventoryController';
 
 // Import New RBAC and Cash Payment controllers
 import {
@@ -207,6 +217,19 @@ router.post('/pos/orders/:id/pay', payPosOrder);
 router.get('/pos/dashboard', requireRevenueOtp, getPosDashboard);
 router.put('/pos/payment-setting', updatePosPaymentSetting);
 router.put('/pos/print-templates/:code', updatePrintTemplate);
+
+// Kitchen inventory
+router.get('/kitchen-inventory/bootstrap', requirePermission('KITCHEN_INVENTORY', 'VIEW'), getKitchenInventoryBootstrap);
+router.post('/kitchen-inventory/units', requirePermission('KITCHEN_INVENTORY', 'CREATE'), upsertKitchenUnit);
+router.put('/kitchen-inventory/units/:id', requirePermission('KITCHEN_INVENTORY', 'EDIT'), upsertKitchenUnit);
+router.delete('/kitchen-inventory/units/:id', requirePermission('KITCHEN_INVENTORY', 'DELETE'), deleteKitchenUnit);
+router.post('/kitchen-inventory/ingredients', requirePermission('KITCHEN_INVENTORY', 'CREATE'), upsertKitchenIngredient);
+router.put('/kitchen-inventory/ingredients/:id', requirePermission('KITCHEN_INVENTORY', 'EDIT'), upsertKitchenIngredient);
+router.delete('/kitchen-inventory/ingredients/:id', requirePermission('KITCHEN_INVENTORY', 'DELETE'), deleteKitchenIngredient);
+router.post('/kitchen-inventory/stock-entries', requirePermission('KITCHEN_INVENTORY', 'CREATE'), createKitchenStockEntry);
+router.post('/kitchen-inventory/recipes', requirePermission('KITCHEN_INVENTORY', 'CREATE'), upsertKitchenRecipe);
+router.put('/kitchen-inventory/recipes/:id', requirePermission('KITCHEN_INVENTORY', 'EDIT'), upsertKitchenRecipe);
+router.delete('/kitchen-inventory/recipes/:id', requirePermission('KITCHEN_INVENTORY', 'DELETE'), deleteKitchenRecipe);
 
 // Site Settings (There's only 1 settings record, so GET & PUT are enough)
 router.get('/site-settings', getSiteSettings);
