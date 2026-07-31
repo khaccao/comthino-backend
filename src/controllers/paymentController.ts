@@ -266,6 +266,17 @@ const ensureLegacySupplierDebtNotes = async () => {
 
   await prisma.$transaction(async (tx) => {
     for (const supplier of suppliers) {
+      const existingDebt = await tx.supplierDebtNote.findFirst({
+        where: {
+          supplierId: supplier.id,
+          debtDate: supplier.createdAt,
+          amount: supplier.currentDebt,
+          status: { not: 'CANCELLED' },
+        },
+        select: { id: true },
+      });
+      if (existingDebt) continue;
+
       await tx.supplierDebtNote.create({
         data: {
           code: `CNL${supplier.id.slice(0, 8).toUpperCase()}`,

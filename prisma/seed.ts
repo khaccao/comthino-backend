@@ -693,6 +693,17 @@ async function main() {
   if (legacyDebtSuppliers.length > 0) {
     let debtCount = await prisma.supplierDebtNote.count();
     for (const supplier of legacyDebtSuppliers) {
+      const existingDebt = await prisma.supplierDebtNote.findFirst({
+        where: {
+          supplierId: supplier.id,
+          debtDate: supplier.createdAt,
+          amount: supplier.currentDebt,
+          status: { not: 'CANCELLED' },
+        },
+        select: { id: true },
+      });
+      if (existingDebt) continue;
+
       debtCount += 1;
       await prisma.supplierDebtNote.create({
         data: {
