@@ -681,6 +681,37 @@ async function main() {
     });
   }
 
+  const legacyDebtSuppliers = await prisma.supplier.findMany({
+    where: {
+      isActive: true,
+      currentDebt: { gt: 0 },
+      debtNotes: { none: {} },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  if (legacyDebtSuppliers.length > 0) {
+    let debtCount = await prisma.supplierDebtNote.count();
+    for (const supplier of legacyDebtSuppliers) {
+      debtCount += 1;
+      await prisma.supplierDebtNote.create({
+        data: {
+          code: `CN${String(debtCount).padStart(4, '0')}`,
+          supplierId: supplier.id,
+          debtDate: supplier.createdAt,
+          dueDate: supplier.paymentDueDate,
+          title: `Công nợ ${supplier.name}`,
+          description: 'Phiếu công nợ được chuyển tự động từ dữ liệu công nợ cũ của nhà cung cấp.',
+          amount: supplier.currentDebt,
+          paidAmount: 0,
+          remainingAmount: supplier.currentDebt,
+          status: 'UNPAID',
+        },
+      });
+    }
+    console.log(`- Migrated ${legacyDebtSuppliers.length} legacy supplier debts to debt notes`);
+  }
+
   console.log('- Seeding Payroll KPI and Reward/Penalty Master Data...');
   const kpiLevels = [
     { code: 'KPI_C', name: 'Cấp C - Cần cải thiện', minScore: 0, maxScore: 69, rewardAmount: 0, description: 'Chưa đạt KPI thưởng.' },

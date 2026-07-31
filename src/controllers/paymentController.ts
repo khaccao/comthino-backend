@@ -218,6 +218,24 @@ const serializeSupplierDebt = (item: any) => {
   };
 };
 
+const buildSupplierDebtWhere = (query: any) => {
+  const { supplierId, status, from, to } = query;
+  const where: any = {};
+  if (supplierId) where.supplierId = String(supplierId);
+  if (status && status !== 'ALL') where.status = String(status);
+  else where.status = { not: 'CANCELLED' };
+  if (from || to) {
+    where.debtDate = {};
+    if (from) where.debtDate.gte = parseSupplierDueDate(String(from));
+    if (to) {
+      const end = parseSupplierDueDate(String(to));
+      end?.setHours(23, 59, 59, 999);
+      where.debtDate.lte = end;
+    }
+  }
+  return where;
+};
+
 const syncSupplierDebtSummary = async (tx: any, supplierId: string) => {
   const debts = await tx.supplierDebtNote.findMany({
     where: { supplierId, status: { not: 'CANCELLED' } },
@@ -231,6 +249,38 @@ const syncSupplierDebtSummary = async (tx: any, supplierId: string) => {
   await tx.supplier.update({
     where: { id: supplierId },
     data: { currentDebt, paymentDueDate: currentDebt > 0 ? nearestDue : null },
+  });
+};
+
+const ensureLegacySupplierDebtNotes = async () => {
+  const suppliers = await prisma.supplier.findMany({
+    where: {
+      isActive: true,
+      currentDebt: { gt: 0 },
+      debtNotes: { none: {} },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  if (!suppliers.length) return;
+
+  await prisma.$transaction(async (tx) => {
+    for (const supplier of suppliers) {
+      await tx.supplierDebtNote.create({
+        data: {
+          code: `CNL${supplier.id.slice(0, 8).toUpperCase()}`,
+          supplierId: supplier.id,
+          debtDate: supplier.createdAt,
+          dueDate: supplier.paymentDueDate,
+          title: `Công nợ ${supplier.name}`,
+          description: 'Phiếu công nợ được chuyển tự động từ dữ liệu công nợ cũ của nhà cung cấp.',
+          amount: supplier.currentDebt,
+          paidAmount: 0,
+          remainingAmount: supplier.currentDebt,
+          status: 'UNPAID',
+        },
+      });
+    }
   });
 };
 
@@ -389,19 +439,8 @@ export const deleteSupplier = async (req: AuthenticatedRequest, res: Response) =
 // SUPPLIER DEBT NOTES
 export const getSupplierDebts = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { supplierId, status, from, to } = req.query;
-    const where: any = {};
-    if (supplierId) where.supplierId = String(supplierId);
-    if (status && status !== 'ALL') where.status = String(status);
-    if (from || to) {
-      where.debtDate = {};
-      if (from) where.debtDate.gte = parseSupplierDueDate(String(from));
-      if (to) {
-        const end = parseSupplierDueDate(String(to));
-        end?.setHours(23, 59, 59, 999);
-        where.debtDate.lte = end;
-      }
-    }
+    await ensureLegacySupplierDebtNotes();
+    const where = buildSupplierDebtWhere(req.query);
 
     const items = await prisma.supplierDebtNote.findMany({
       where,
@@ -420,13 +459,15 @@ export const getSupplierDebts = async (req: AuthenticatedRequest, res: Response)
   }
 };
 
-export const getSupplierDebtSummary = async (_req: AuthenticatedRequest, res: Response) => {
+export const getSupplierDebtSummary = async (req: AuthenticatedRequest, res: Response) => {
   try {
+    await ensureLegacySupplierDebtNotes();
+    const debtWhere = buildSupplierDebtWhere(req.query);
     const suppliers = await prisma.supplier.findMany({
       where: { isActive: true },
       include: {
         debtNotes: {
-          where: { status: { not: 'CANCELLED' } },
+          where: debtWhere,
           orderBy: [{ dueDate: 'asc' }, { debtDate: 'desc' }],
         },
       },
@@ -450,7 +491,7 @@ export const getSupplierDebtSummary = async (_req: AuthenticatedRequest, res: Re
         nearestDueStatus: openDebts[0]?.dueStatus || 'NONE',
         nearestDueStatusLabel: openDebts[0]?.dueStatusLabel || '-',
       };
-    });
+    }).filter(item => item.debtCount > 0 || item.remainingDebt > 0);
 
     res.json({ success: true, items });
   } catch (error: any) {
