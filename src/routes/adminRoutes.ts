@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticateJWT, requireAdmin, requirePermission, requireRevenueOtp } from '../middlewares/auth';
+import { authenticateJWT, requireAdmin, requirePayrollOtp, requirePermission, requireRevenueOtp } from '../middlewares/auth';
 import { upload } from '../middlewares/upload';
 import {
   getDashboard,
@@ -399,35 +399,35 @@ router.delete('/payments/vouchers/:id', requirePermission('PAYMENT_VOUCHER', 'DE
 router.get('/payments/dashboard', requirePermission('CASH_BOOK', 'VIEW'), getPaymentDashboard);
 
 // Payroll / Attendance
-router.get('/payroll/bootstrap', requirePermission('PAYROLL', 'VIEW'), getPayrollBootstrap);
-router.get('/payroll/shifts', requirePermission('PAYROLL', 'VIEW'), getWorkShifts);
+router.get('/payroll/bootstrap', requirePermission('PAYROLL', 'VIEW'), requirePayrollOtp, getPayrollBootstrap);
+router.get('/payroll/shifts', requirePermission('PAYROLL', 'VIEW'), requirePayrollOtp, getWorkShifts);
 router.post('/payroll/shifts', requirePermission('PAYROLL', 'CREATE'), createWorkShift);
 router.put('/payroll/shifts/:id', requirePermission('PAYROLL', 'EDIT'), updateWorkShift);
 router.delete('/payroll/shifts/:id', requirePermission('PAYROLL', 'DELETE'), deleteWorkShift);
-router.get('/payroll/employees', requirePermission('PAYROLL', 'VIEW'), getPayrollEmployees);
+router.get('/payroll/employees', requirePermission('PAYROLL', 'VIEW'), requirePayrollOtp, getPayrollEmployees);
 router.post('/payroll/employees', requirePermission('PAYROLL', 'CREATE'), createPayrollEmployee);
 router.put('/payroll/employees/:id', requirePermission('PAYROLL', 'EDIT'), updatePayrollEmployee);
 router.delete('/payroll/employees/:id', requirePermission('PAYROLL', 'DELETE'), deletePayrollEmployee);
-router.get('/payroll/attendance', requirePermission('PAYROLL', 'VIEW'), getAttendances);
+router.get('/payroll/attendance', requirePermission('PAYROLL', 'VIEW'), requirePayrollOtp, getAttendances);
 router.post('/payroll/attendance', requirePermission('PAYROLL', 'CREATE'), createAttendance);
 router.put('/payroll/attendance/:id', requirePermission('PAYROLL', 'EDIT'), updateAttendance);
 router.delete('/payroll/attendance/:id', requirePermission('PAYROLL', 'DELETE'), deleteAttendance);
-router.get('/payroll/runs', requirePermission('PAYROLL', 'VIEW'), getPayrollRuns);
+router.get('/payroll/runs', requirePermission('PAYROLL', 'VIEW'), requirePayrollOtp, getPayrollRuns);
 router.post('/payroll/runs/generate', requirePermission('PAYROLL', 'CREATE'), generatePayrollRun);
 router.delete('/payroll/runs/:id', requirePermission('PAYROLL', 'DELETE'), deletePayrollRun);
-router.get('/payroll/kpi-levels', requirePermission('PAYROLL', 'VIEW'), getKpiLevels);
+router.get('/payroll/kpi-levels', requirePermission('PAYROLL', 'VIEW'), requirePayrollOtp, getKpiLevels);
 router.post('/payroll/kpi-levels', requirePermission('PAYROLL', 'CREATE'), createKpiLevel);
 router.put('/payroll/kpi-levels/:id', requirePermission('PAYROLL', 'EDIT'), updateKpiLevel);
 router.delete('/payroll/kpi-levels/:id', requirePermission('PAYROLL', 'DELETE'), deleteKpiLevel);
-router.get('/payroll/kpi-records', requirePermission('PAYROLL', 'VIEW'), getKpiRecords);
+router.get('/payroll/kpi-records', requirePermission('PAYROLL', 'VIEW'), requirePayrollOtp, getKpiRecords);
 router.post('/payroll/kpi-records', requirePermission('PAYROLL', 'CREATE'), createKpiRecord);
 router.put('/payroll/kpi-records/:id', requirePermission('PAYROLL', 'EDIT'), updateKpiRecord);
 router.delete('/payroll/kpi-records/:id', requirePermission('PAYROLL', 'DELETE'), deleteKpiRecord);
-router.get('/payroll/adjustment-categories', requirePermission('PAYROLL', 'VIEW'), getRewardPenaltyCategories);
+router.get('/payroll/adjustment-categories', requirePermission('PAYROLL', 'VIEW'), requirePayrollOtp, getRewardPenaltyCategories);
 router.post('/payroll/adjustment-categories', requirePermission('PAYROLL', 'CREATE'), createRewardPenaltyCategory);
 router.put('/payroll/adjustment-categories/:id', requirePermission('PAYROLL', 'EDIT'), updateRewardPenaltyCategory);
 router.delete('/payroll/adjustment-categories/:id', requirePermission('PAYROLL', 'DELETE'), deleteRewardPenaltyCategory);
-router.get('/payroll/adjustments', requirePermission('PAYROLL', 'VIEW'), getRewardPenalties);
+router.get('/payroll/adjustments', requirePermission('PAYROLL', 'VIEW'), requirePayrollOtp, getRewardPenalties);
 router.post('/payroll/adjustments', requirePermission('PAYROLL', 'CREATE'), createRewardPenalty);
 router.put('/payroll/adjustments/:id', requirePermission('PAYROLL', 'EDIT'), updateRewardPenalty);
 router.delete('/payroll/adjustments/:id', requirePermission('PAYROLL', 'DELETE'), deleteRewardPenalty);

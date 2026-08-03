@@ -91,7 +91,9 @@ export const requirePermission = (menuCode: string, permissionCode: string) => {
   };
 };
 
-export const requireRevenueOtp = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+const requireSensitiveOtp =
+  (twoFactorMessage: string, invalidCode: string) =>
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   if (!req.user?.id) {
     return res.status(401).json({ message: 'Chưa đăng nhập.' });
   }
@@ -120,7 +122,7 @@ export const requireRevenueOtp = async (req: AuthenticatedRequest, res: Response
 
   if (!user.twoFactorEnabled || !user.twoFactorSecret) {
     return res.status(403).json({
-      message: 'Tài khoản chưa bật 2FA. Vui lòng yêu cầu Super Admin kích hoạt Google Authenticator trước khi xem doanh thu.',
+      message: twoFactorMessage,
       code: 'TWO_FACTOR_REQUIRED',
     });
   }
@@ -128,9 +130,19 @@ export const requireRevenueOtp = async (req: AuthenticatedRequest, res: Response
   if (!verifyTotp(user.twoFactorSecret, otp)) {
     return res.status(403).json({
       message: 'Mã OTP Google Authenticator không đúng hoặc đã hết hạn.',
-      code: 'INVALID_REVENUE_OTP',
+      code: invalidCode,
     });
   }
 
   return next();
 };
+
+export const requireRevenueOtp = requireSensitiveOtp(
+  'Tài khoản chưa bật 2FA. Vui lòng yêu cầu Super Admin kích hoạt Google Authenticator trước khi xem doanh thu.',
+  'INVALID_REVENUE_OTP'
+);
+
+export const requirePayrollOtp = requireSensitiveOtp(
+  'Tài khoản chưa bật 2FA. Vui lòng yêu cầu Super Admin kích hoạt Google Authenticator trước khi xem chấm công và lương.',
+  'INVALID_PAYROLL_OTP'
+);
