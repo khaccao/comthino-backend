@@ -632,6 +632,82 @@ VALUES (@Id, @MenuItemId, @MenuItemCode, @MenuItemName, @IngredientId, @Ingredie
   }
 };
 
+export const saveKitchenRecipeSet = async (req: AuthenticatedRequest, res: Response) => {
+  let transaction: sql.Transaction | null = null;
+  let transactionStarted = false;
+  try {
+    await ensureKitchenInventorySchema();
+    const pool = await getCaoPool();
+    transaction = new sql.Transaction(pool);
+    const menuItemId = String(req.params.menuItemId || req.body.menuItemId || '').trim();
+    const lines = Array.isArray(req.body.lines) ? req.body.lines : [];
+    const menu = row<any>((await pool.request().input('Id', sql.NVarChar(64), menuItemId).query('SELECT TOP 1 * FROM dbo.ComPosMenuItems WHERE Id=@Id')).recordset);
+    if (!menu) return res.status(400).json({ success: false, message: 'Vui lòng chọn món POS.' });
+
+    const validLines = lines
+      .map((line: any) => ({
+        ingredientId: String(line.ingredientId || '').trim(),
+        quantityPerItem: toNumber(line.quantityPerItem),
+        wastePercent: toNumber(line.wastePercent),
+        note: line.note || null,
+      }))
+      .filter((line: any) => line.ingredientId && line.quantityPerItem > 0);
+
+    if (!validLines.length) {
+      return res.status(400).json({ success: false, message: 'Vui lòng nhập ít nhất một nguyên liệu có định lượng lớn hơn 0.' });
+    }
+
+    const duplicate = validLines.find((line: any, index: number) => validLines.findIndex((item: any) => item.ingredientId === line.ingredientId) !== index);
+    if (duplicate) {
+      return res.status(400).json({ success: false, message: 'Một nguyên liệu chỉ nên nhập một lần trong cùng món.' });
+    }
+
+    await transaction.begin();
+    transactionStarted = true;
+    const request = new sql.Request(transaction);
+    await request
+      .input('MenuItemId', sql.NVarChar(64), menu.Id)
+      .query('UPDATE dbo.ComKitchenRecipes SET IsActive=0, UpdatedAt=SYSDATETIME() WHERE MenuItemId=@MenuItemId AND IsActive=1');
+
+    for (const line of validLines) {
+      const ingredient = row<any>((await new sql.Request(transaction)
+        .input('Id', sql.NVarChar(64), line.ingredientId)
+        .query('SELECT TOP 1 * FROM dbo.ComKitchenIngredients WHERE Id=@Id AND IsActive=1')).recordset);
+      if (!ingredient) {
+        throw new Error('Có nguyên liệu không tồn tại hoặc đã bị ẩn.');
+      }
+
+      await new sql.Request(transaction)
+        .input('Id', sql.NVarChar(64), newId())
+        .input('MenuItemId', sql.NVarChar(64), menu.Id)
+        .input('MenuItemCode', sql.NVarChar(80), menu.Code)
+        .input('MenuItemName', sql.NVarChar(220), menu.Name)
+        .input('IngredientId', sql.NVarChar(64), ingredient.Id)
+        .input('IngredientName', sql.NVarChar(180), ingredient.Name)
+        .input('UnitId', sql.NVarChar(64), ingredient.UnitId)
+        .input('UnitName', sql.NVarChar(80), ingredient.UnitName)
+        .input('QuantityPerItem', sql.Decimal(18, 3), line.quantityPerItem)
+        .input('WastePercent', sql.Decimal(10, 2), line.wastePercent)
+        .input('Note', sql.NVarChar(sql.MAX), line.note)
+        .query(`
+INSERT INTO dbo.ComKitchenRecipes
+  (Id, MenuItemId, MenuItemCode, MenuItemName, IngredientId, IngredientName, UnitId, UnitName, QuantityPerItem, WastePercent, Note, IsActive)
+VALUES
+  (@Id, @MenuItemId, @MenuItemCode, @MenuItemName, @IngredientId, @IngredientName, @UnitId, @UnitName, @QuantityPerItem, @WastePercent, @Note, 1);
+`);
+    }
+
+    await transaction.commit();
+    transactionStarted = false;
+    res.json({ success: true, data: { menuItemId: menu.Id, count: validLines.length } });
+  } catch (error: any) {
+    if (transaction && transactionStarted) {
+      try { await transaction.rollback(); } catch {}
+    }
+    res.status(500).json({ success: false, message: error.message || 'Không lưu được bộ định lượng món.' });
+  }
+};
+
 export const deleteKitchenRecipe = async (req: AuthenticatedRequest, res: Response) => {
   await ensureKitchenInventorySchema();
   const pool = await getCaoPool();

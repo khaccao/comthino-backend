@@ -99,6 +99,7 @@ import {
   deleteKitchenRecipe,
   deleteKitchenUnit,
   getKitchenInventoryBootstrap,
+  saveKitchenRecipeSet,
   upsertKitchenIngredient,
   upsertKitchenRecipe,
   upsertKitchenUnit,
@@ -233,6 +234,7 @@ router.put('/kitchen-inventory/ingredients/:id', requirePermission('KITCHEN_INVE
 router.delete('/kitchen-inventory/ingredients/:id', requirePermission('KITCHEN_INVENTORY', 'DELETE'), deleteKitchenIngredient);
 router.post('/kitchen-inventory/stock-entries', requirePermission('KITCHEN_INVENTORY', 'CREATE'), createKitchenStockEntry);
 router.post('/kitchen-inventory/recipes', requirePermission('KITCHEN_INVENTORY', 'CREATE'), upsertKitchenRecipe);
+router.put('/kitchen-inventory/recipes/by-menu/:menuItemId', requirePermission('KITCHEN_INVENTORY', 'EDIT'), saveKitchenRecipeSet);
 router.put('/kitchen-inventory/recipes/:id', requirePermission('KITCHEN_INVENTORY', 'EDIT'), upsertKitchenRecipe);
 router.delete('/kitchen-inventory/recipes/:id', requirePermission('KITCHEN_INVENTORY', 'DELETE'), deleteKitchenRecipe);
 
