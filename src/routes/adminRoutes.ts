@@ -1,4 +1,4 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import { authenticateJWT, requireAdmin, requirePayrollOtp, requirePermission, requireRevenueOtp } from '../middlewares/auth';
 import { upload } from '../middlewares/upload';
 import {
