@@ -1242,8 +1242,14 @@ export const payPosOrder = async (req: AuthenticatedRequest, res: Response) => {
       .input('PaymentMethod', sql.NVarChar(40), req.body.paymentMethod || 'CASH')
       .query(`UPDATE dbo.ComPosOrders SET Status='PAID', PaymentMethod=@PaymentMethod, PaidAt=SYSDATETIME(), UpdatedAt=SYSDATETIME() WHERE Id=@Id;
         UPDATE dbo.ComPosTables SET Status='AVAILABLE', UpdatedAt=SYSDATETIME() WHERE Id=@TableId;`));
-    await deductKitchenStockForPaidOrder(req.params.id);
-    res.json({ success: true, data: await getOrderById(req.params.id) });
+    let stockWarning: string | null = null;
+    try {
+      await deductKitchenStockForPaidOrder(req.params.id);
+    } catch (stockError: any) {
+      stockWarning = stockError.message || 'Không tự trừ được tồn kho bếp.';
+      console.error('POS stock deduction failed:', stockWarning);
+    }
+    res.json({ success: true, data: await getOrderById(req.params.id), stockWarning });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message || 'Không thanh toán được order.' });
   }

@@ -293,6 +293,8 @@ export const deductKitchenStockForPaidOrder = async (orderId: string) => {
   await withSqlRetry(() => pool.request().input('OrderId', sql.NVarChar(64), orderId).query(`
 DECLARE @Now DATETIME2 = SYSDATETIME();
 
+IF OBJECT_ID('tempdb..#Consumption') IS NOT NULL DROP TABLE #Consumption;
+
 ;WITH RawConsumption AS (
   SELECT
     oi.Id AS OrderItemId,
@@ -306,25 +308,25 @@ DECLARE @Now DATETIME2 = SYSDATETIME();
   JOIN dbo.ComPosOrderItems oi ON oi.OrderId = o.Id
   JOIN dbo.ComKitchenRecipes r ON r.MenuItemId = oi.MenuItemId AND r.IsActive = 1
   WHERE o.Id = @OrderId AND UPPER(o.Status) = 'PAID'
-),
-Consumption AS (
-  SELECT
-    OrderItemId,
-    OrderId,
-    OrderNo,
-    IngredientId,
-    IngredientName,
-    UnitName,
-    SUM(QuantityOut) AS QuantityOut
-  FROM RawConsumption
-  GROUP BY OrderItemId, OrderId, OrderNo, IngredientId, IngredientName, UnitName
 )
+SELECT
+  OrderItemId,
+  OrderId,
+  OrderNo,
+  IngredientId,
+  IngredientName,
+  UnitName,
+  SUM(QuantityOut) AS QuantityOut
+INTO #Consumption
+FROM RawConsumption
+GROUP BY OrderItemId, OrderId, OrderNo, IngredientId, IngredientName, UnitName;
+
 INSERT INTO dbo.ComKitchenStockMovements
   (Id, IngredientId, IngredientName, UnitName, MovementType, RefType, RefId, RefNo, MovementDate, QuantityOut, Note)
 SELECT
   NEWID(), c.IngredientId, c.IngredientName, c.UnitName, 'OUT', 'POS_ORDER', c.OrderId, c.OrderNo, @Now, c.QuantityOut,
   N'Tự trừ tồn kho khi thanh toán POS'
-FROM Consumption c
+FROM #Consumption c
 WHERE NOT EXISTS (
   SELECT 1 FROM dbo.ComKitchenOrderDeductions d
   WHERE d.OrderItemId = c.OrderItemId AND d.IngredientId = c.IngredientId
@@ -332,7 +334,7 @@ WHERE NOT EXISTS (
 
 INSERT INTO dbo.ComKitchenOrderDeductions (Id, OrderId, OrderItemId, IngredientId, QuantityOut, MovementId)
 SELECT NEWID(), c.OrderId, c.OrderItemId, c.IngredientId, c.QuantityOut, m.Id
-FROM Consumption c
+FROM #Consumption c
 JOIN dbo.ComKitchenStockMovements m ON m.RefType='POS_ORDER' AND m.RefId=c.OrderId AND m.IngredientId=c.IngredientId AND m.MovementDate=@Now
 WHERE NOT EXISTS (
   SELECT 1 FROM dbo.ComKitchenOrderDeductions d
