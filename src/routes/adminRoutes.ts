@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { authenticateJWT, requireAdmin, requirePayrollOtp, requirePermission, requireRevenueOtp } from '../middlewares/auth';
 import { upload } from '../middlewares/upload';
 import {
@@ -413,7 +413,7 @@ router.post('/payroll/attendance', requirePermission('PAYROLL', 'CREATE'), creat
 router.put('/payroll/attendance/:id', requirePermission('PAYROLL', 'EDIT'), updateAttendance);
 router.delete('/payroll/attendance/:id', requirePermission('PAYROLL', 'DELETE'), deleteAttendance);
 router.get('/payroll/runs', requirePermission('PAYROLL', 'VIEW'), requirePayrollOtp, getPayrollRuns);
-router.post('/payroll/runs/generate', requirePermission('PAYROLL', 'CREATE'), generatePayrollRun);
+router.post('/payroll/runs/generate', requirePermission('PAYROLL', 'CREATE'), requirePayrollOtp, generatePayrollRun);
 router.delete('/payroll/runs/:id', requirePermission('PAYROLL', 'DELETE'), deletePayrollRun);
 router.get('/payroll/kpi-levels', requirePermission('PAYROLL', 'VIEW'), requirePayrollOtp, getKpiLevels);
 router.post('/payroll/kpi-levels', requirePermission('PAYROLL', 'CREATE'), createKpiLevel);
@@ -436,3 +436,4 @@ router.delete('/payroll/adjustments/:id', requirePermission('PAYROLL', 'DELETE')
 router.get('/audit-logs', requirePermission('AUDIT_LOG', 'VIEW'), getAuditLogs);
 
 export default router;
+
