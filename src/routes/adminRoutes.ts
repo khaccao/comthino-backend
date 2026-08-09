@@ -153,6 +153,7 @@ import {
   getSupplierDebtSummary,
   createSupplier,
   createSupplierDebt,
+  paySupplierDebt,
   updateSupplier,
   updateSupplierDebt,
   deleteSupplier,
@@ -382,6 +383,7 @@ router.delete('/suppliers/:id', requirePermission('SUPPLIER_CATEGORY', 'DELETE')
 router.get('/supplier-debts', requirePermission('SUPPLIER_DEBT', 'VIEW'), getSupplierDebts);
 router.get('/supplier-debts/summary', requirePermission('SUPPLIER_DEBT', 'VIEW'), getSupplierDebtSummary);
 router.post('/supplier-debts', requirePermission('SUPPLIER_DEBT', 'CREATE'), createSupplierDebt);
+router.post('/supplier-debts/pay', requirePermission('SUPPLIER_DEBT', 'EDIT'), paySupplierDebt);
 router.put('/supplier-debts/:id', requirePermission('SUPPLIER_DEBT', 'EDIT'), updateSupplierDebt);
 router.delete('/supplier-debts/:id', requirePermission('SUPPLIER_DEBT', 'DELETE'), deleteSupplierDebt);
 

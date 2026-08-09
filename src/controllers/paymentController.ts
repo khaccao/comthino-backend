@@ -56,6 +56,21 @@ const supplierDebtSchema = z.object({
   status: z.string().optional(),
 });
 
+const supplierDebtPaymentSchema = z.object({
+  supplierId: z.string().uuid('Nha cung cap khong hop le'),
+  supplierDebtId: z.string().uuid('Phieu cong no khong hop le').optional().nullable(),
+  paymentDate: z.string().optional().nullable(),
+  amount: z.number().positive('So tien thanh toan phai lon hon 0'),
+  paymentMethodId: z.string().uuid('Phuong thuc chi khong hop le'),
+  cashAccountId: z.string().uuid('Tai khoan tien khong hop le'),
+  expenseCategoryId: z.string().uuid('Danh muc khoan chi khong hop le'),
+  recipientName: z.string().optional().nullable(),
+  reason: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+  attachmentUrl: z.string().optional().nullable(),
+  postNow: z.boolean().optional().default(true),
+});
+
 const normalizePaymentRequestBody = (body: any) => ({
   ...body,
   expenseCategoryId: body.expenseCategoryId || body.categoryId,
@@ -215,6 +230,11 @@ const serializeSupplierDebt = (item: any) => {
           : dueDateKey
             ? `Còn ${daysUntilDue} ngày`
             : '-',
+    paymentVouchers: (item.paymentVouchers || []).map((voucher: any) => ({
+      ...voucher,
+      amount: Number(voucher.amount || 0),
+      paymentDate: voucher.paymentDate ? toVietnamDateKey(new Date(voucher.paymentDate)) : null,
+    })),
   };
 };
 
@@ -250,6 +270,37 @@ const syncSupplierDebtSummary = async (tx: any, supplierId: string) => {
     where: { id: supplierId },
     data: { currentDebt, paymentDueDate: currentDebt > 0 ? nearestDue : null },
   });
+};
+
+const applySupplierDebtPayment = async (tx: any, supplierDebtId: string, amount: number) => {
+  const current = await tx.supplierDebtNote.findUnique({
+    where: { id: supplierDebtId },
+    select: {
+      id: true,
+      supplierId: true,
+      amount: true,
+      paidAmount: true,
+      remainingAmount: true,
+      status: true,
+    },
+  });
+  if (!current || current.status === 'CANCELLED') throw new Error('Phieu cong no khong hop le.');
+
+  const remainingAmount = Number(current.remainingAmount || 0);
+  if (amount > remainingAmount) throw new Error('So tien thanh toan vuot qua so con no cua phieu cong no.');
+
+  const nextPaid = Number(current.paidAmount || 0) + amount;
+  const nextRemaining = Math.max(Number(current.amount || 0) - nextPaid, 0);
+
+  await tx.supplierDebtNote.update({
+    where: { id: supplierDebtId },
+    data: {
+      paidAmount: nextPaid,
+      remainingAmount: nextRemaining,
+      status: nextRemaining <= 0 ? 'PAID' : 'PARTIAL',
+    },
+  });
+  await syncSupplierDebtSummary(tx, current.supplierId);
 };
 
 const ensureLegacySupplierDebtNotes = async () => {
@@ -607,6 +658,134 @@ export const deleteSupplierDebt = async (req: AuthenticatedRequest, res: Respons
   }
 };
 
+export const paySupplierDebt = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const validated = supplierDebtPaymentSchema.parse(req.body);
+    const paymentDate = parsePaymentDate(validated.paymentDate);
+    const totalAmount = Number(validated.amount || 0);
+
+    const result = await prisma.$transaction(async (tx) => {
+      const supplier = await tx.supplier.findUnique({
+        where: { id: validated.supplierId },
+        select: { id: true, name: true, isActive: true },
+      });
+      if (!supplier || !supplier.isActive) throw new Error('Nha cung cap khong hop le hoac da ngung hoat dong.');
+
+      const debts = validated.supplierDebtId
+        ? await tx.supplierDebtNote.findMany({
+          where: {
+            id: validated.supplierDebtId,
+            supplierId: validated.supplierId,
+            status: { in: ['UNPAID', 'PARTIAL'] },
+            remainingAmount: { gt: 0 },
+          },
+          orderBy: [{ dueDate: 'asc' }, { debtDate: 'asc' }, { createdAt: 'asc' }],
+        })
+        : await tx.supplierDebtNote.findMany({
+          where: {
+            supplierId: validated.supplierId,
+            status: { in: ['UNPAID', 'PARTIAL'] },
+            remainingAmount: { gt: 0 },
+          },
+          orderBy: [{ dueDate: 'asc' }, { debtDate: 'asc' }, { createdAt: 'asc' }],
+        });
+
+      if (!debts.length) throw new Error('Khong co phieu cong no nao can thanh toan.');
+
+      const allocations: Array<{ debt: any; amount: number }> = [];
+      let remainingToAllocate = totalAmount;
+      for (const debt of debts) {
+        if (remainingToAllocate <= 0) break;
+        const debtRemaining = Number(debt.remainingAmount || 0);
+        const amount = validated.supplierDebtId ? totalAmount : Math.min(debtRemaining, remainingToAllocate);
+        if (amount > 0) {
+          allocations.push({ debt, amount });
+          remainingToAllocate -= amount;
+        }
+      }
+
+      if (validated.supplierDebtId && allocations[0] && totalAmount > Number(allocations[0].debt.remainingAmount || 0)) {
+        throw new Error('So tien thanh toan vuot qua so con no cua phieu cong no.');
+      }
+      if (!validated.supplierDebtId && remainingToAllocate > 0) {
+        throw new Error('So tien thanh toan vuot qua tong cong no con lai cua nha cung cap.');
+      }
+
+      if (validated.postNow) {
+        const account = await tx.cashAccount.findUnique({ where: { id: validated.cashAccountId } });
+        if (!account) throw new Error('Khong tim thay tai khoan quy.');
+        await tx.cashAccount.update({
+          where: { id: validated.cashAccountId },
+          data: { balance: { decrement: totalAmount } },
+        });
+      }
+
+      const count = await tx.paymentVoucher.count();
+      const createdVouchers = [];
+      for (let index = 0; index < allocations.length; index += 1) {
+        const allocation = allocations[index];
+        const code = `PC${String(count + index + 1).padStart(4, '0')}`;
+        const voucher = await tx.paymentVoucher.create({
+          data: {
+            code,
+            paymentDate,
+            supplierDebtId: allocation.debt.id,
+            supplierId: validated.supplierId,
+            recipientName: validated.recipientName || supplier.name,
+            reason: validated.reason || `Thanh toan cong no ${allocation.debt.code} - ${allocation.debt.title}`,
+            amount: allocation.amount,
+            paymentMethodId: validated.paymentMethodId,
+            cashAccountId: validated.cashAccountId,
+            expenseCategoryId: validated.expenseCategoryId,
+            attachmentUrl: validated.attachmentUrl || null,
+            notes: validated.notes || (validated.supplierDebtId ? null : `Thanh toan gop nha cung cap ${supplier.name}`),
+            status: validated.postNow ? 'POSTED' : 'UNPOSTED',
+            createdById: req.user!.id,
+          },
+        });
+        createdVouchers.push(voucher);
+
+        if (validated.postNow) {
+          await applySupplierDebtPayment(tx, allocation.debt.id, allocation.amount);
+        }
+      }
+
+      if (!validated.postNow) await syncSupplierDebtSummary(tx, validated.supplierId);
+
+      return {
+        vouchers: createdVouchers,
+        allocationCount: allocations.length,
+        totalAmount,
+        status: validated.postNow ? 'POSTED' : 'UNPOSTED',
+      };
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user?.id,
+        action: result.status === 'POSTED' ? 'PAY_SUPPLIER_DEBT_POSTED' : 'PAY_SUPPLIER_DEBT_UNPOSTED',
+        entity: 'SupplierDebtNotes',
+        entityId: validated.supplierDebtId || validated.supplierId,
+      },
+    });
+
+    res.status(201).json({
+      success: true,
+      item: {
+        ...result,
+        vouchers: result.vouchers.map(serializeVoucher),
+      },
+      message: result.status === 'POSTED'
+        ? 'Da tao phieu chi, ghi so va cap nhat cong no.'
+        : 'Da tao phieu chi cho cong no.',
+    });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: error.errors[0].message });
+    if (error?.message) return res.status(400).json({ message: error.message });
+    res.status(500).json({ message: 'Loi thanh toan cong no nha cung cap.' });
+  }
+};
+
 // MASTER DATA FOR SELECTION
 export const getExpenseCategories = async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -867,17 +1046,7 @@ export const postPaymentVoucher = async (req: AuthenticatedRequest, res: Respons
 
       // 2. Update supplier debt note and summary if this voucher pays a debt
       if (voucher.supplierDebtId && voucher.supplierDebt) {
-        const nextPaid = Number(voucher.supplierDebt.paidAmount || 0) + Number(voucher.amount || 0);
-        const nextRemaining = Math.max(Number(voucher.supplierDebt.amount || 0) - nextPaid, 0);
-        await tx.supplierDebtNote.update({
-          where: { id: voucher.supplierDebtId },
-          data: {
-            paidAmount: nextPaid,
-            remainingAmount: nextRemaining,
-            status: nextRemaining <= 0 ? 'PAID' : 'PARTIAL',
-          },
-        });
-        await syncSupplierDebtSummary(tx, voucher.supplierDebt.supplierId);
+        await applySupplierDebtPayment(tx, voucher.supplierDebtId, Number(voucher.amount || 0));
       }
 
       // 3. Update legacy Supplier Debt if voucher has a supplier directly or via payment request
