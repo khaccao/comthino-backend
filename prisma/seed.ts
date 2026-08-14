@@ -482,6 +482,11 @@ async function main() {
     { code: 'ROLE_MANAGEMENT', name: 'Quản lý vai trò', path: '/admin/roles', icon: 'Shield', sortOrder: 33 },
     { code: 'PERMISSION_MANAGEMENT', name: 'Quản lý quyền', path: '/admin/permissions', icon: 'Key', sortOrder: 34 },
     { code: 'AUDIT_LOG', name: 'Nhật ký hệ thống', path: '/admin/audit-logs', icon: 'History', sortOrder: 35 },
+    { code: 'BLOG_CATEGORY', name: 'Danh mục tin', path: '/admin/blog/categories', icon: 'Newspaper', sortOrder: 36 },
+    { code: 'BLOG_POST', name: 'Bài viết', path: '/admin/blog/posts', icon: 'Newspaper', sortOrder: 37 },
+    { code: 'SEO_PAGE', name: 'SEO Landing Pages', path: '/admin/seo-pages', icon: 'Globe', sortOrder: 38 },
+    { code: 'FAQ_MANAGEMENT', name: 'FAQs', path: '/admin/faqs', icon: 'Sparkles', sortOrder: 39 },
+    { code: 'REVIEW_MANAGEMENT', name: 'Reviews', path: '/admin/reviews', icon: 'MessageSquare', sortOrder: 40 },
   ];
 
   for (const m of menus) {
@@ -551,6 +556,7 @@ async function main() {
   const approve = ['VIEW', 'APPROVE'];
   const finance = ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'PAY', 'POST_ACCOUNTING', 'PRINT', 'EXPORT'];
   const pos = ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'PRINT', 'PAY', 'CANCEL'];
+  const content = ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'EXPORT'];
 
   await grantRolePermissions('KITCHEN', {
     DASHBOARD: view,
@@ -593,6 +599,11 @@ async function main() {
     SUPPLIER_CATEGORY: maintain,
     SUPPLIER_DEBT: maintain,
     PAYROLL: maintain,
+    BLOG_CATEGORY: content,
+    BLOG_POST: content,
+    SEO_PAGE: content,
+    FAQ_MANAGEMENT: content,
+    REVIEW_MANAGEMENT: content,
   });
 
   await grantRolePermissions('ACCOUNTANT', {
@@ -633,6 +644,11 @@ async function main() {
     MENU_MANAGEMENT: maintain,
     DISH_CATEGORY: maintain,
     PAYROLL: maintain,
+    BLOG_CATEGORY: content,
+    BLOG_POST: content,
+    SEO_PAGE: content,
+    FAQ_MANAGEMENT: content,
+    REVIEW_MANAGEMENT: content,
   });
 
   // 14. Seed Cash Payment Master Data

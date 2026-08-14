@@ -203,31 +203,31 @@ const router = Router();
 router.use(authenticateJWT);
 
 // Dashboard
-router.get('/dashboard', requireRevenueOtp, getDashboard);
+router.get('/dashboard', requirePermission('DASHBOARD', 'VIEW'), requireRevenueOtp, getDashboard);
 
 // POS
-router.get('/pos/bootstrap', getPosBootstrap);
+router.get('/pos/bootstrap', requirePermission('ORDER_POS', 'VIEW'), getPosBootstrap);
 router.get('/pos/runner', requirePermission('POS_RUNNER', 'VIEW'), getPosRunnerOrders);
-router.post('/pos/tables', upsertPosTable);
-router.put('/pos/tables/layout', updatePosTableLayout);
-router.put('/pos/tables/:id', upsertPosTable);
-router.post('/pos/menu-categories', upsertPosMenuCategory);
-router.put('/pos/menu-categories/:id', upsertPosMenuCategory);
-router.post('/pos/menu-items', upsertPosMenuItem);
-router.put('/pos/menu-items/:id', upsertPosMenuItem);
-router.post('/pos/orders/open', openPosOrder);
-router.get('/pos/orders/history', requireRevenueOtp, getPosHistory);
-router.get('/pos/orders/:id/print-context', getPosPrintContext);
-router.get('/pos/orders/:id', getPosOrderDetail);
-router.put('/pos/orders/:id', updatePosOrder);
-router.post('/pos/orders/:id/items', addPosOrderItem);
-router.put('/pos/orders/:id/items/:itemId', updatePosOrderItem);
-router.delete('/pos/orders/:id/items/:itemId', deletePosOrderItem);
-router.post('/pos/orders/:id/confirm-kitchen', confirmKitchen);
-router.post('/pos/orders/:id/pay', payPosOrder);
-router.get('/pos/dashboard', requireRevenueOtp, getPosDashboard);
-router.put('/pos/payment-setting', updatePosPaymentSetting);
-router.put('/pos/print-templates/:code', updatePrintTemplate);
+router.post('/pos/tables', requirePermission('ORDER_POS', 'EDIT'), upsertPosTable);
+router.put('/pos/tables/layout', requirePermission('ORDER_POS', 'EDIT'), updatePosTableLayout);
+router.put('/pos/tables/:id', requirePermission('ORDER_POS', 'EDIT'), upsertPosTable);
+router.post('/pos/menu-categories', requirePermission('ORDER_POS', 'EDIT'), upsertPosMenuCategory);
+router.put('/pos/menu-categories/:id', requirePermission('ORDER_POS', 'EDIT'), upsertPosMenuCategory);
+router.post('/pos/menu-items', requirePermission('ORDER_POS', 'EDIT'), upsertPosMenuItem);
+router.put('/pos/menu-items/:id', requirePermission('ORDER_POS', 'EDIT'), upsertPosMenuItem);
+router.post('/pos/orders/open', requirePermission('ORDER_POS', 'CREATE'), openPosOrder);
+router.get('/pos/orders/history', requirePermission('ORDER_POS', 'VIEW'), requireRevenueOtp, getPosHistory);
+router.get('/pos/orders/:id/print-context', requirePermission('ORDER_POS', 'VIEW'), getPosPrintContext);
+router.get('/pos/orders/:id', requirePermission('ORDER_POS', 'VIEW'), getPosOrderDetail);
+router.put('/pos/orders/:id', requirePermission('ORDER_POS', 'EDIT'), updatePosOrder);
+router.post('/pos/orders/:id/items', requirePermission('ORDER_POS', 'CREATE'), addPosOrderItem);
+router.put('/pos/orders/:id/items/:itemId', requirePermission('ORDER_POS', 'EDIT'), updatePosOrderItem);
+router.delete('/pos/orders/:id/items/:itemId', requirePermission('ORDER_POS', 'DELETE'), deletePosOrderItem);
+router.post('/pos/orders/:id/confirm-kitchen', requirePermission('ORDER_POS', 'PRINT'), confirmKitchen);
+router.post('/pos/orders/:id/pay', requirePermission('ORDER_POS', 'PAY'), payPosOrder);
+router.get('/pos/dashboard', requirePermission('ORDER_POS', 'VIEW'), requireRevenueOtp, getPosDashboard);
+router.put('/pos/payment-setting', requirePermission('ORDER_POS', 'EDIT'), updatePosPaymentSetting);
+router.put('/pos/print-templates/:code', requirePermission('ORDER_POS', 'EDIT'), updatePrintTemplate);
 
 // Kitchen inventory
 router.get('/kitchen-inventory/bootstrap', requirePermission('KITCHEN_INVENTORY', 'VIEW'), getKitchenInventoryBootstrap);
@@ -244,107 +244,107 @@ router.put('/kitchen-inventory/recipes/:id', requirePermission('KITCHEN_INVENTOR
 router.delete('/kitchen-inventory/recipes/:id', requirePermission('KITCHEN_INVENTORY', 'DELETE'), deleteKitchenRecipe);
 
 // Site Settings (There's only 1 settings record, so GET & PUT are enough)
-router.get('/site-settings', getSiteSettings);
-router.put('/site-settings', updateSiteSettings);
-router.post('/site-settings', updateSiteSettings); // For compatibility with generic CRUD route paths
+router.get('/site-settings', requirePermission('SYSTEM_CONFIG', 'VIEW'), getSiteSettings);
+router.put('/site-settings', requirePermission('SYSTEM_CONFIG', 'EDIT'), updateSiteSettings);
+router.post('/site-settings', requirePermission('SYSTEM_CONFIG', 'EDIT'), updateSiteSettings); // For compatibility with generic CRUD route paths
 router.delete('/site-settings', (req, res) => res.status(400).json({ message: 'Không thể xóa cấu hình hệ thống.' }));
 
 // Navigation Items
-router.get('/navigation-items', getNavItems);
-router.post('/navigation-items', createNavItem);
-router.put('/navigation-items/:id', updateNavItem);
-router.delete('/navigation-items/:id', deleteNavItem);
+router.get('/navigation-items', requirePermission('SYSTEM_CONFIG', 'VIEW'), getNavItems);
+router.post('/navigation-items', requirePermission('SYSTEM_CONFIG', 'CREATE'), createNavItem);
+router.put('/navigation-items/:id', requirePermission('SYSTEM_CONFIG', 'EDIT'), updateNavItem);
+router.delete('/navigation-items/:id', requirePermission('SYSTEM_CONFIG', 'DELETE'), deleteNavItem);
 
 // Banners
-router.get('/banners', getBanners);
-router.post('/banners', createBanner);
-router.put('/banners/:id', updateBanner);
-router.delete('/banners/:id', deleteBanner);
+router.get('/banners', requirePermission('SYSTEM_CONFIG', 'VIEW'), getBanners);
+router.post('/banners', requirePermission('SYSTEM_CONFIG', 'CREATE'), createBanner);
+router.put('/banners/:id', requirePermission('SYSTEM_CONFIG', 'EDIT'), updateBanner);
+router.delete('/banners/:id', requirePermission('SYSTEM_CONFIG', 'DELETE'), deleteBanner);
 
 // Home Sections
-router.get('/home-sections', getHomeSections);
-router.post('/home-sections', createHomeSection);
-router.put('/home-sections/:id', updateHomeSection);
-router.delete('/home-sections/:id', deleteHomeSection);
+router.get('/home-sections', requirePermission('SYSTEM_CONFIG', 'VIEW'), getHomeSections);
+router.post('/home-sections', requirePermission('SYSTEM_CONFIG', 'CREATE'), createHomeSection);
+router.put('/home-sections/:id', requirePermission('SYSTEM_CONFIG', 'EDIT'), updateHomeSection);
+router.delete('/home-sections/:id', requirePermission('SYSTEM_CONFIG', 'DELETE'), deleteHomeSection);
 
 // Menu Categories
-router.get('/menu-categories', getCategories);
-router.post('/menu-categories', createCategory);
-router.put('/menu-categories/:id', updateCategory);
-router.delete('/menu-categories/:id', deleteCategory);
+router.get('/menu-categories', requirePermission('DISH_CATEGORY', 'VIEW'), getCategories);
+router.post('/menu-categories', requirePermission('DISH_CATEGORY', 'CREATE'), createCategory);
+router.put('/menu-categories/:id', requirePermission('DISH_CATEGORY', 'EDIT'), updateCategory);
+router.delete('/menu-categories/:id', requirePermission('DISH_CATEGORY', 'DELETE'), deleteCategory);
 
 // Menu Items
-router.get('/menu-items', getMenuItems);
-router.post('/menu-items', createMenuItem);
-router.put('/menu-items/:id', updateMenuItem);
-router.delete('/menu-items/:id', deleteMenuItem);
+router.get('/menu-items', requirePermission('MENU_MANAGEMENT', 'VIEW'), getMenuItems);
+router.post('/menu-items', requirePermission('MENU_MANAGEMENT', 'CREATE'), createMenuItem);
+router.put('/menu-items/:id', requirePermission('MENU_MANAGEMENT', 'EDIT'), updateMenuItem);
+router.delete('/menu-items/:id', requirePermission('MENU_MANAGEMENT', 'DELETE'), deleteMenuItem);
 
 // Promotions
-router.get('/promotions', getPromotions);
-router.post('/promotions', createPromotion);
-router.put('/promotions/:id', updatePromotion);
-router.delete('/promotions/:id', deletePromotion);
+router.get('/promotions', requirePermission('SYSTEM_CONFIG', 'VIEW'), getPromotions);
+router.post('/promotions', requirePermission('SYSTEM_CONFIG', 'CREATE'), createPromotion);
+router.put('/promotions/:id', requirePermission('SYSTEM_CONFIG', 'EDIT'), updatePromotion);
+router.delete('/promotions/:id', requirePermission('SYSTEM_CONFIG', 'DELETE'), deletePromotion);
 
 // Gallery Images
-router.get('/gallery-images', getGalleryImages);
-router.post('/gallery-images', createGalleryImage);
-router.put('/gallery-images/:id', updateGalleryImage);
-router.delete('/gallery-images/:id', deleteGalleryImage);
+router.get('/gallery-images', requirePermission('SYSTEM_CONFIG', 'VIEW'), getGalleryImages);
+router.post('/gallery-images', requirePermission('SYSTEM_CONFIG', 'CREATE'), createGalleryImage);
+router.put('/gallery-images/:id', requirePermission('SYSTEM_CONFIG', 'EDIT'), updateGalleryImage);
+router.delete('/gallery-images/:id', requirePermission('SYSTEM_CONFIG', 'DELETE'), deleteGalleryImage);
 
 // Testimonials
-router.get('/testimonials', getTestimonials);
-router.post('/testimonials', createTestimonial);
-router.put('/testimonials/:id', updateTestimonial);
-router.delete('/testimonials/:id', deleteTestimonial);
+router.get('/testimonials', requirePermission('SYSTEM_CONFIG', 'VIEW'), getTestimonials);
+router.post('/testimonials', requirePermission('SYSTEM_CONFIG', 'CREATE'), createTestimonial);
+router.put('/testimonials/:id', requirePermission('SYSTEM_CONFIG', 'EDIT'), updateTestimonial);
+router.delete('/testimonials/:id', requirePermission('SYSTEM_CONFIG', 'DELETE'), deleteTestimonial);
 
 // Contact Messages
-router.get('/contact-messages', getContacts);
-router.put('/contact-messages/:id', updateContactStatus);
-router.delete('/contact-messages/:id', deleteContact);
+router.get('/contact-messages', requirePermission('SYSTEM_CONFIG', 'VIEW'), getContacts);
+router.put('/contact-messages/:id', requirePermission('SYSTEM_CONFIG', 'EDIT'), updateContactStatus);
+router.delete('/contact-messages/:id', requirePermission('SYSTEM_CONFIG', 'DELETE'), deleteContact);
 
 // Media Manager
-router.get('/media', getMediaFiles);
-router.post('/media', upload.single('image'), uploadMedia);
-router.put('/media/:id', updateMedia);
-router.delete('/media/:id', deleteMedia);
+router.get('/media', requirePermission('SYSTEM_CONFIG', 'VIEW'), getMediaFiles);
+router.post('/media', requirePermission('SYSTEM_CONFIG', 'CREATE'), upload.single('image'), uploadMedia);
+router.put('/media/:id', requirePermission('SYSTEM_CONFIG', 'EDIT'), updateMedia);
+router.delete('/media/:id', requirePermission('SYSTEM_CONFIG', 'DELETE'), deleteMedia);
 
 // Standalone Upload Endpoint
-router.post('/upload/image', upload.single('image'), uploadMedia);
+router.post('/upload/image', requirePermission('SYSTEM_CONFIG', 'CREATE'), upload.single('image'), uploadMedia);
 
 // Blog / News
-router.get('/blog/slug-preview', previewBlogSlug);
-router.get('/blog/categories', getBlogCategories);
-router.post('/blog/categories', createBlogCategory);
-router.put('/blog/categories/:id', updateBlogCategory);
-router.delete('/blog/categories/:id', deleteBlogCategory);
+router.get('/blog/slug-preview', requirePermission('BLOG_POST', 'VIEW'), previewBlogSlug);
+router.get('/blog/categories', requirePermission('BLOG_CATEGORY', 'VIEW'), getBlogCategories);
+router.post('/blog/categories', requirePermission('BLOG_CATEGORY', 'CREATE'), createBlogCategory);
+router.put('/blog/categories/:id', requirePermission('BLOG_CATEGORY', 'EDIT'), updateBlogCategory);
+router.delete('/blog/categories/:id', requirePermission('BLOG_CATEGORY', 'DELETE'), deleteBlogCategory);
 
-router.get('/blog/posts', getBlogPosts);
-router.get('/blog/posts/:id', getBlogPost);
-router.post('/blog/posts', createBlogPost);
-router.put('/blog/posts/:id', updateBlogPost);
-router.delete('/blog/posts/:id', deleteBlogPost);
-router.post('/blog/posts/:id/publish', publishBlogPost);
-router.post('/blog/posts/:id/unpublish', unpublishBlogPost);
+router.get('/blog/posts', requirePermission('BLOG_POST', 'VIEW'), getBlogPosts);
+router.get('/blog/posts/:id', requirePermission('BLOG_POST', 'VIEW'), getBlogPost);
+router.post('/blog/posts', requirePermission('BLOG_POST', 'CREATE'), createBlogPost);
+router.put('/blog/posts/:id', requirePermission('BLOG_POST', 'EDIT'), updateBlogPost);
+router.delete('/blog/posts/:id', requirePermission('BLOG_POST', 'DELETE'), deleteBlogPost);
+router.post('/blog/posts/:id/publish', requirePermission('BLOG_POST', 'EDIT'), publishBlogPost);
+router.post('/blog/posts/:id/unpublish', requirePermission('BLOG_POST', 'EDIT'), unpublishBlogPost);
 
 // SEO Manager
 // Seo Pages
-router.get('/seo-pages', getSeoPages);
-router.get('/seo-pages/:id', getSeoPage);
-router.post('/seo-pages', createSeoPage);
-router.put('/seo-pages/:id', updateSeoPage);
-router.delete('/seo-pages/:id', deleteSeoPage);
+router.get('/seo-pages', requirePermission('SEO_PAGE', 'VIEW'), getSeoPages);
+router.get('/seo-pages/:id', requirePermission('SEO_PAGE', 'VIEW'), getSeoPage);
+router.post('/seo-pages', requirePermission('SEO_PAGE', 'CREATE'), createSeoPage);
+router.put('/seo-pages/:id', requirePermission('SEO_PAGE', 'EDIT'), updateSeoPage);
+router.delete('/seo-pages/:id', requirePermission('SEO_PAGE', 'DELETE'), deleteSeoPage);
 
 // FAQs
-router.get('/faqs', getFAQs);
-router.post('/faqs', createFAQ);
-router.put('/faqs/:id', updateFAQ);
-router.delete('/faqs/:id', deleteFAQ);
+router.get('/faqs', requirePermission('FAQ_MANAGEMENT', 'VIEW'), getFAQs);
+router.post('/faqs', requirePermission('FAQ_MANAGEMENT', 'CREATE'), createFAQ);
+router.put('/faqs/:id', requirePermission('FAQ_MANAGEMENT', 'EDIT'), updateFAQ);
+router.delete('/faqs/:id', requirePermission('FAQ_MANAGEMENT', 'DELETE'), deleteFAQ);
 
 // Reviews
-router.get('/reviews', getReviews);
-router.post('/reviews', createReview);
-router.put('/reviews/:id', updateReview);
-router.delete('/reviews/:id', deleteReview);
+router.get('/reviews', requirePermission('REVIEW_MANAGEMENT', 'VIEW'), getReviews);
+router.post('/reviews', requirePermission('REVIEW_MANAGEMENT', 'CREATE'), createReview);
+router.put('/reviews/:id', requirePermission('REVIEW_MANAGEMENT', 'EDIT'), updateReview);
+router.delete('/reviews/:id', requirePermission('REVIEW_MANAGEMENT', 'DELETE'), deleteReview);
 
 // --- USER MANAGEMENT ENDPOINTS ---
 router.get('/users', requirePermission('USER_MANAGEMENT', 'VIEW'), getUsers);
