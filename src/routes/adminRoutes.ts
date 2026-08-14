@@ -83,6 +83,7 @@ import {
   getPosHistory,
   getPosOrderDetail,
   getPosPrintContext,
+  getPosRunnerOrders,
   openPosOrder,
   payPosOrder,
   updatePosPaymentSetting,
@@ -206,6 +207,7 @@ router.get('/dashboard', requireRevenueOtp, getDashboard);
 
 // POS
 router.get('/pos/bootstrap', getPosBootstrap);
+router.get('/pos/runner', getPosRunnerOrders);
 router.post('/pos/tables', upsertPosTable);
 router.put('/pos/tables/layout', updatePosTableLayout);
 router.put('/pos/tables/:id', upsertPosTable);

@@ -883,6 +883,86 @@ export const getPosBootstrap = async (_req: AuthenticatedRequest, res: Response)
   }
 };
 
+export const getPosRunnerOrders = async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    await cleanupEmptyOpenOrders(pool);
+
+    const ordersResult = await pool.request().query(`
+SELECT
+  o.Id,
+  o.OrderNo,
+  o.TableId,
+  o.TableName,
+  UPPER(o.Status) AS Status,
+  o.Note,
+  o.CreatedAt,
+  o.UpdatedAt,
+  o.KitchenPrintedAt,
+  COUNT(i.Id) AS ItemCount,
+  ISNULL(SUM(i.Quantity), 0) AS TotalQuantity,
+  SUM(CASE WHEN UPPER(i.Status) IN ('NEW','CHANGED') THEN 1 ELSE 0 END) AS ChangedItemCount
+FROM dbo.ComPosOrders o WITH (READPAST)
+JOIN dbo.ComPosOrderItems i WITH (READPAST) ON i.OrderId = o.Id
+WHERE o.Status IN ('OPEN','ORDERED')
+GROUP BY o.Id, o.OrderNo, o.TableId, o.TableName, o.Status, o.Note, o.CreatedAt, o.UpdatedAt, o.KitchenPrintedAt
+ORDER BY
+  CASE WHEN UPPER(o.Status) = 'ORDERED' THEN 0 ELSE 1 END,
+  o.CreatedAt ASC,
+  o.OrderNo ASC;
+`);
+
+    const itemsResult = await pool.request().query(`
+SELECT
+  i.Id,
+  i.OrderId,
+  i.MenuItemId,
+  i.Code,
+  i.Name,
+  i.Quantity,
+  i.Note,
+  UPPER(i.Status) AS Status,
+  i.CreatedAt,
+  i.UpdatedAt
+FROM dbo.ComPosOrderItems i WITH (READPAST)
+JOIN dbo.ComPosOrders o WITH (READPAST) ON o.Id = i.OrderId
+WHERE o.Status IN ('OPEN','ORDERED')
+ORDER BY o.CreatedAt ASC, i.CreatedAt ASC;
+`);
+
+    const itemsByOrder = new Map<string, any[]>();
+    for (const item of itemsResult.recordset) {
+      const key = String(item.OrderId);
+      const current = itemsByOrder.get(key) || [];
+      current.push({
+        ...item,
+        Quantity: Number(item.Quantity || 0),
+      });
+      itemsByOrder.set(key, current);
+    }
+
+    const orders = ordersResult.recordset.map((order: any, index: number) => ({
+      ...order,
+      RunnerNo: index + 1,
+      ItemCount: Number(order.ItemCount || 0),
+      TotalQuantity: Number(order.TotalQuantity || 0),
+      ChangedItemCount: Number(order.ChangedItemCount || 0),
+      items: itemsByOrder.get(String(order.Id)) || [],
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        serverTime: formatVietnamServerTime(),
+        orders,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Khong tai duoc man chay ban POS.' });
+  }
+};
+
 export const updatePosPaymentSetting = async (req: AuthenticatedRequest, res: Response) => {
   try {
     await ensurePosSchema();
