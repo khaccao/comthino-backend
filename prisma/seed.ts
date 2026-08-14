@@ -472,15 +472,16 @@ async function main() {
     { code: 'DISH_PRICE', name: 'Giá bán món', path: '/admin/menu-items/prices', icon: 'Tag', sortOrder: 23 },
     { code: 'TABLE_MANAGEMENT', name: 'Bàn & Phòng', path: '/admin/tables', icon: 'Grid3X3', sortOrder: 24 },
     { code: 'ORDER_POS', name: 'POS bán hàng', path: '/admin/pos', icon: 'Monitor', sortOrder: 25 },
-    { code: 'KITCHEN_INVENTORY', name: 'Kho bếp & định lượng', path: '/admin/kitchen-inventory', icon: 'Package', sortOrder: 26 },
-    { code: 'STAFF_MANAGEMENT', name: 'Quản lý nhân viên', path: '/admin/staff', icon: 'Users2', sortOrder: 26 },
-    { code: 'CUSTOMER_MANAGEMENT', name: 'Quản lý khách hàng', path: '/admin/customers', icon: 'Heart', sortOrder: 27 },
-    { code: 'PAYROLL', name: 'Chấm công & bảng lương', path: '/admin/payroll', icon: 'CalendarClock', sortOrder: 28 },
-    { code: 'SYSTEM_CONFIG', name: 'Cấu hình hệ thống', path: '/admin/site-settings', icon: 'Sliders', sortOrder: 29 },
-    { code: 'USER_MANAGEMENT', name: 'Quản lý user', path: '/admin/users', icon: 'UserCog', sortOrder: 30 },
-    { code: 'ROLE_MANAGEMENT', name: 'Quản lý vai trò', path: '/admin/roles', icon: 'Shield', sortOrder: 31 },
-    { code: 'PERMISSION_MANAGEMENT', name: 'Quản lý quyền', path: '/admin/permissions', icon: 'Key', sortOrder: 32 },
-    { code: 'AUDIT_LOG', name: 'Nhật ký hệ thống', path: '/admin/audit-logs', icon: 'History', sortOrder: 33 },
+    { code: 'POS_RUNNER', name: 'Chạy bàn', path: '/admin/pos/runner', icon: 'Utensils', sortOrder: 26 },
+    { code: 'KITCHEN_INVENTORY', name: 'Kho bếp & định lượng', path: '/admin/kitchen-inventory', icon: 'Package', sortOrder: 27 },
+    { code: 'STAFF_MANAGEMENT', name: 'Quản lý nhân viên', path: '/admin/staff', icon: 'Users2', sortOrder: 28 },
+    { code: 'CUSTOMER_MANAGEMENT', name: 'Quản lý khách hàng', path: '/admin/customers', icon: 'Heart', sortOrder: 29 },
+    { code: 'PAYROLL', name: 'Chấm công & bảng lương', path: '/admin/payroll', icon: 'CalendarClock', sortOrder: 30 },
+    { code: 'SYSTEM_CONFIG', name: 'Cấu hình hệ thống', path: '/admin/site-settings', icon: 'Sliders', sortOrder: 31 },
+    { code: 'USER_MANAGEMENT', name: 'Quản lý user', path: '/admin/users', icon: 'UserCog', sortOrder: 32 },
+    { code: 'ROLE_MANAGEMENT', name: 'Quản lý vai trò', path: '/admin/roles', icon: 'Shield', sortOrder: 33 },
+    { code: 'PERMISSION_MANAGEMENT', name: 'Quản lý quyền', path: '/admin/permissions', icon: 'Key', sortOrder: 34 },
+    { code: 'AUDIT_LOG', name: 'Nhật ký hệ thống', path: '/admin/audit-logs', icon: 'History', sortOrder: 35 },
   ];
 
   for (const m of menus) {
@@ -554,11 +555,13 @@ async function main() {
   await grantRolePermissions('KITCHEN', {
     DASHBOARD: view,
     ORDER_POS: view,
+    POS_RUNNER: view,
     KITCHEN_INVENTORY: ['VIEW', 'CREATE'],
   });
 
   await grantRolePermissions('STAFF', {
     DASHBOARD: view,
+    POS_RUNNER: view,
     PAYMENT_REQUEST: entry,
     SUPPLIER_CATEGORY: view,
   });
@@ -566,6 +569,7 @@ async function main() {
   await grantRolePermissions('CASHIER', {
     DASHBOARD: view,
     ORDER_POS: pos,
+    POS_RUNNER: view,
     KITCHEN_INVENTORY: ['VIEW', 'CREATE'],
     PAYMENT_REQUEST: entry,
     SUPPLIER_CATEGORY: view,
@@ -574,6 +578,7 @@ async function main() {
   await grantRolePermissions('MANAGER', {
     DASHBOARD: view,
     ORDER_POS: pos,
+    POS_RUNNER: view,
     TABLE_MANAGEMENT: maintain,
     KITCHEN_INVENTORY: maintain,
     MENU_MANAGEMENT: maintain,
@@ -609,6 +614,7 @@ async function main() {
   await grantRolePermissions('OWNER', {
     DASHBOARD: view,
     ORDER_POS: pos,
+    POS_RUNNER: view,
     PAYMENT_REQUEST: maintain,
     PAYMENT_REQUEST_APPROVAL: approve,
     PAYMENT_VOUCHER: finance,
