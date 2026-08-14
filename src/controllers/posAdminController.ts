@@ -29,6 +29,16 @@ const defaultPaymentSettings = [
 
 const row = <T>(recordset: T[]) => recordset[0] || null;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const formatVietnamServerTime = (date = new Date()) =>
+  new Intl.DateTimeFormat('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour12: false,
+  }).format(date).replace(',', '');
 const isDeadlock = (error: any) => error?.number === 1205 || /deadlock/i.test(error?.message || '');
 const isUniqueKeyViolation = (error: any) =>
   error?.number === 2601 ||
@@ -1332,6 +1342,43 @@ export const getPosOrderDetail = async (req: AuthenticatedRequest, res: Response
     res.json({ success: true, data: order });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message || 'Không tải được chi tiết order.' });
+  }
+};
+
+export const getPosPrintContext = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    const result = await pool
+      .request()
+      .input('Id', sql.NVarChar(64), req.params.id)
+      .query(`
+DECLARE @CreatedAt DATETIME2, @OrderNo NVARCHAR(60), @WorkDate DATE;
+SELECT @CreatedAt = CreatedAt, @OrderNo = OrderNo, @WorkDate = CAST(CreatedAt AS DATE)
+FROM dbo.ComPosOrders
+WHERE Id = @Id;
+
+SELECT
+  ISNULL((
+    SELECT COUNT(1)
+    FROM dbo.ComPosOrders
+    WHERE CAST(CreatedAt AS DATE) = @WorkDate
+      AND (
+        CreatedAt < @CreatedAt
+        OR (CreatedAt = @CreatedAt AND OrderNo <= @OrderNo)
+      )
+  ), 0) AS OrderQueueNo;
+`);
+    const info = row<any>(result.recordset) || { OrderQueueNo: 0 };
+    res.json({
+      success: true,
+      data: {
+        printTime: formatVietnamServerTime(),
+        orderQueueNo: Number(info.OrderQueueNo || 0),
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Khong lay duoc thong tin in POS.' });
   }
 };
 

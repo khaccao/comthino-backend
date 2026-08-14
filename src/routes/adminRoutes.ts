@@ -82,6 +82,7 @@ import {
   getPosDashboard,
   getPosHistory,
   getPosOrderDetail,
+  getPosPrintContext,
   openPosOrder,
   payPosOrder,
   updatePosPaymentSetting,
@@ -214,6 +215,7 @@ router.post('/pos/menu-items', upsertPosMenuItem);
 router.put('/pos/menu-items/:id', upsertPosMenuItem);
 router.post('/pos/orders/open', openPosOrder);
 router.get('/pos/orders/history', requireRevenueOtp, getPosHistory);
+router.get('/pos/orders/:id/print-context', getPosPrintContext);
 router.get('/pos/orders/:id', getPosOrderDetail);
 router.put('/pos/orders/:id', updatePosOrder);
 router.post('/pos/orders/:id/items', addPosOrderItem);
