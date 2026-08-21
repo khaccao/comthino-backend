@@ -229,10 +229,22 @@ IF COL_LENGTH('dbo.ComPosTables', 'Height') IS NULL ALTER TABLE dbo.ComPosTables
 IF COL_LENGTH('dbo.ComPosTables', 'Shape') IS NULL ALTER TABLE dbo.ComPosTables ADD Shape NVARCHAR(20) NOT NULL CONSTRAINT DF_ComPosTables_Shape_Alter DEFAULT 'RECT';
 IF COL_LENGTH('dbo.ComPosTables', 'SourceGuid') IS NULL ALTER TABLE dbo.ComPosTables ADD SourceGuid NVARCHAR(64) NULL;
 IF COL_LENGTH('dbo.ComPosTables', 'SourceTable') IS NULL ALTER TABLE dbo.ComPosTables ADD SourceTable NVARCHAR(80) NULL;
+IF COL_LENGTH('dbo.ComPosTables', 'BranchId') IS NULL ALTER TABLE dbo.ComPosTables ADD BranchId NVARCHAR(64) NULL;
 IF COL_LENGTH('dbo.ComPosMenuCategories', 'SourceGuid') IS NULL ALTER TABLE dbo.ComPosMenuCategories ADD SourceGuid NVARCHAR(64) NULL;
 IF COL_LENGTH('dbo.ComPosMenuCategories', 'SourceTable') IS NULL ALTER TABLE dbo.ComPosMenuCategories ADD SourceTable NVARCHAR(80) NULL;
+IF COL_LENGTH('dbo.ComPosMenuCategories', 'BranchId') IS NULL ALTER TABLE dbo.ComPosMenuCategories ADD BranchId NVARCHAR(64) NULL;
 IF COL_LENGTH('dbo.ComPosMenuItems', 'SourceGuid') IS NULL ALTER TABLE dbo.ComPosMenuItems ADD SourceGuid NVARCHAR(64) NULL;
 IF COL_LENGTH('dbo.ComPosMenuItems', 'SourceTable') IS NULL ALTER TABLE dbo.ComPosMenuItems ADD SourceTable NVARCHAR(80) NULL;
+IF COL_LENGTH('dbo.ComPosMenuItems', 'BranchId') IS NULL ALTER TABLE dbo.ComPosMenuItems ADD BranchId NVARCHAR(64) NULL;
+IF COL_LENGTH('dbo.ComPosPaymentSettings', 'BranchId') IS NULL ALTER TABLE dbo.ComPosPaymentSettings ADD BranchId NVARCHAR(64) NULL;
+IF COL_LENGTH('dbo.ComPosOrders', 'BranchId') IS NULL ALTER TABLE dbo.ComPosOrders ADD BranchId NVARCHAR(64) NULL;
+IF COL_LENGTH('dbo.ComPosOrders', 'CustomerId') IS NULL ALTER TABLE dbo.ComPosOrders ADD CustomerId NVARCHAR(64) NULL;
+IF COL_LENGTH('dbo.ComPosOrders', 'CustomerCode') IS NULL ALTER TABLE dbo.ComPosOrders ADD CustomerCode NVARCHAR(80) NULL;
+IF COL_LENGTH('dbo.ComPosOrders', 'CustomerName') IS NULL ALTER TABLE dbo.ComPosOrders ADD CustomerName NVARCHAR(220) NULL;
+IF COL_LENGTH('dbo.ComPosOrders', 'CustomerPhone') IS NULL ALTER TABLE dbo.ComPosOrders ADD CustomerPhone NVARCHAR(80) NULL;
+IF COL_LENGTH('dbo.ComPosOrders', 'VoucherId') IS NULL ALTER TABLE dbo.ComPosOrders ADD VoucherId NVARCHAR(64) NULL;
+IF COL_LENGTH('dbo.ComPosOrders', 'PointsEarned') IS NULL ALTER TABLE dbo.ComPosOrders ADD PointsEarned INT NOT NULL CONSTRAINT DF_ComPosOrders_PointsEarned_Alter DEFAULT 0;
+IF COL_LENGTH('dbo.ComPosOrders', 'PointsRedeemed') IS NULL ALTER TABLE dbo.ComPosOrders ADD PointsRedeemed INT NOT NULL CONSTRAINT DF_ComPosOrders_PointsRedeemed_Alter DEFAULT 0;
 IF COL_LENGTH('dbo.ComPosOrders', 'DiscountType') IS NULL ALTER TABLE dbo.ComPosOrders ADD DiscountType NVARCHAR(20) NOT NULL CONSTRAINT DF_ComPosOrders_DiscountType_Alter DEFAULT 'AMOUNT';
 IF COL_LENGTH('dbo.ComPosOrders', 'DiscountValue') IS NULL ALTER TABLE dbo.ComPosOrders ADD DiscountValue DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrders_DiscountValue_Alter DEFAULT 0;
 IF COL_LENGTH('dbo.ComPosOrders', 'PaymentQrUrl') IS NULL ALTER TABLE dbo.ComPosOrders ADD PaymentQrUrl NVARCHAR(1000) NULL;
@@ -851,16 +863,18 @@ WHERE OrderNo LIKE @Prefix + '-%';
   return `${prefix}-${String(nextNo).padStart(3, '0')}`;
 };
 
-export const getPosBootstrap = async (_req: AuthenticatedRequest, res: Response) => {
+export const getPosBootstrap = async (req: AuthenticatedRequest, res: Response) => {
   try {
     await ensurePosSchema(true);
     const pool = await getCaoPool();
     await cleanupEmptyOpenOrders(pool);
+    const branchId = String(req.query.branchId || req.headers['x-branch-id'] || '').trim();
+    const scopedRequest = () => pool.request().input('BranchId', sql.NVarChar(64), branchId || null);
     const [tables, categories, items, openOrders, templates, paymentSetting, paymentSettings] = await Promise.all([
-      pool.request().query('SELECT * FROM dbo.ComPosTables WHERE IsActive = 1 ORDER BY SortOrder, Name'),
-      pool.request().query('SELECT * FROM dbo.ComPosMenuCategories WHERE IsActive = 1 ORDER BY SortOrder, Name'),
-      pool.request().query('SELECT * FROM dbo.ComPosMenuItems WHERE IsActive = 1 ORDER BY SortOrder, Name'),
-      pool.request().query(`${orderSelect} WHERE o.Status IN ('OPEN', 'ORDERED') AND (${activeOrderWhere}) ORDER BY o.CreatedAt DESC`),
+      scopedRequest().query('SELECT * FROM dbo.ComPosTables WHERE IsActive = 1 AND (@BranchId IS NULL OR BranchId IS NULL OR BranchId = @BranchId) ORDER BY SortOrder, Name'),
+      scopedRequest().query('SELECT * FROM dbo.ComPosMenuCategories WHERE IsActive = 1 AND (@BranchId IS NULL OR BranchId IS NULL OR BranchId = @BranchId) ORDER BY SortOrder, Name'),
+      scopedRequest().query('SELECT * FROM dbo.ComPosMenuItems WHERE IsActive = 1 AND (@BranchId IS NULL OR BranchId IS NULL OR BranchId = @BranchId) ORDER BY SortOrder, Name'),
+      scopedRequest().query(`${orderSelect} WHERE o.Status IN ('OPEN', 'ORDERED') AND (${activeOrderWhere}) AND (@BranchId IS NULL OR o.BranchId IS NULL OR o.BranchId = @BranchId) ORDER BY o.CreatedAt DESC`),
       pool.request().query('SELECT Code, Name, Content, UpdatedAt FROM dbo.ComPosPrintTemplates ORDER BY Code'),
       getPaymentSetting(pool),
       getPaymentSettings(pool),
@@ -1157,10 +1171,12 @@ export const openPosOrder = async (req: AuthenticatedRequest, res: Response) => 
     const pool = await getCaoPool();
     await cleanupEmptyOpenOrders(pool);
     const tableId = req.body.tableId;
+    const branchId = String(req.body.branchId || req.headers['x-branch-id'] || '').trim();
     const existing = await pool
       .request()
       .input('TableId', sql.NVarChar(64), tableId)
-      .query(`${orderSelect} WHERE o.TableId = @TableId AND o.Status IN ('OPEN', 'ORDERED') AND (${activeOrderWhere}) ORDER BY o.CreatedAt DESC`);
+      .input('BranchId', sql.NVarChar(64), branchId || null)
+      .query(`${orderSelect} WHERE o.TableId = @TableId AND o.Status IN ('OPEN', 'ORDERED') AND (${activeOrderWhere}) AND (@BranchId IS NULL OR o.BranchId IS NULL OR o.BranchId = @BranchId) ORDER BY o.CreatedAt DESC`);
     const current = row<any>(existing.recordset);
     if (current) {
       res.json({ success: true, data: await getOrderById(current.Id) });
@@ -1188,8 +1204,9 @@ export const openPosOrder = async (req: AuthenticatedRequest, res: Response) => 
           .input('OrderNo', sql.NVarChar(60), orderNo)
           .input('TableId', sql.NVarChar(64), table.Id)
           .input('TableName', sql.NVarChar(120), table.Name)
-          .query(`INSERT INTO dbo.ComPosOrders (Id, OrderNo, TableId, TableName)
-            VALUES (@Id, @OrderNo, @TableId, @TableName);`);
+          .input('BranchId', sql.NVarChar(64), branchId || table.BranchId || null)
+          .query(`INSERT INTO dbo.ComPosOrders (Id, OrderNo, TableId, TableName, BranchId)
+            VALUES (@Id, @OrderNo, @TableId, @TableName, @BranchId);`);
         created = true;
         break;
       } catch (error: any) {
@@ -1292,7 +1309,24 @@ export const updatePosOrder = async (req: AuthenticatedRequest, res: Response) =
       .input('Note', sql.NVarChar(sql.MAX), req.body.note || null)
       .input('DiscountType', sql.NVarChar(20), discountType)
       .input('DiscountValue', sql.Decimal(18, 2), discountValue)
-      .query('UPDATE dbo.ComPosOrders SET Note=@Note, DiscountType=@DiscountType, DiscountValue=@DiscountValue, UpdatedAt=SYSDATETIME() WHERE Id=@Id');
+      .input('CustomerId', sql.NVarChar(64), req.body.customerId || req.body.CustomerId || null)
+      .input('CustomerCode', sql.NVarChar(80), req.body.customerCode || req.body.CustomerCode || null)
+      .input('CustomerName', sql.NVarChar(220), req.body.customerName || req.body.CustomerName || null)
+      .input('CustomerPhone', sql.NVarChar(80), req.body.customerPhone || req.body.CustomerPhone || null)
+      .input('VoucherId', sql.NVarChar(64), req.body.voucherId || req.body.VoucherId || null)
+      .input('PointsRedeemed', sql.Int, Math.max(0, Number(req.body.pointsRedeemed || req.body.PointsRedeemed || 0)))
+      .query(`UPDATE dbo.ComPosOrders
+        SET Note=@Note,
+            DiscountType=@DiscountType,
+            DiscountValue=@DiscountValue,
+            CustomerId=COALESCE(@CustomerId, CustomerId),
+            CustomerCode=COALESCE(@CustomerCode, CustomerCode),
+            CustomerName=COALESCE(@CustomerName, CustomerName),
+            CustomerPhone=COALESCE(@CustomerPhone, CustomerPhone),
+            VoucherId=COALESCE(@VoucherId, VoucherId),
+            PointsRedeemed=@PointsRedeemed,
+            UpdatedAt=SYSDATETIME()
+        WHERE Id=@Id`);
     await recalculateOrder(req.params.id, { type: discountType, value: discountValue });
     res.json({ success: true, data: await getOrderById(req.params.id) });
   } catch (error: any) {
@@ -1338,6 +1372,69 @@ export const payPosOrder = async (req: AuthenticatedRequest, res: Response) => {
     } catch (stockError: any) {
       stockWarning = stockError.message || 'Không tự trừ được tồn kho bếp.';
       console.error('POS stock deduction failed:', stockWarning);
+    }
+    const paidOrder = await getOrderById(req.params.id);
+    if (paidOrder?.CustomerId) {
+      try {
+        const setting = await prisma.loyaltySetting.findUnique({ where: { code: 'DEFAULT' } });
+        const pointsPerAmount = Number(setting?.pointsPerAmount || 10000);
+        const pointsEarnedUnit = Number(setting?.pointsEarned || 1);
+        const pointsEarned = pointsPerAmount > 0
+          ? Math.floor(Number(paidOrder.TotalAmount || 0) / pointsPerAmount) * pointsEarnedUnit
+          : 0;
+
+        await prisma.$transaction(async (tx) => {
+          await tx.customer.update({
+            where: { id: String(paidOrder.CustomerId) },
+            data: {
+              totalOrders: { increment: 1 },
+              totalSpent: { increment: Number(paidOrder.TotalAmount || 0) },
+              currentPoints: { increment: pointsEarned - Number(paidOrder.PointsRedeemed || 0) },
+              lastOrderAt: paidOrder.PaidAt || new Date(),
+            },
+          });
+
+          if (pointsEarned) {
+            await tx.customerPointTransaction.create({
+              data: {
+                customerId: String(paidOrder.CustomerId),
+                branchId: paidOrder.BranchId || null,
+                type: 'EARN',
+                points: pointsEarned,
+                amount: Number(paidOrder.TotalAmount || 0),
+                orderNo: paidOrder.OrderNo,
+                referenceId: paidOrder.Id,
+                note: 'Tích điểm từ POS',
+                createdBy: req.user?.id,
+              },
+            });
+          }
+
+          const pointsRedeemed = Number(paidOrder.PointsRedeemed || 0);
+          if (pointsRedeemed > 0) {
+            await tx.customerPointTransaction.create({
+              data: {
+                customerId: String(paidOrder.CustomerId),
+                branchId: paidOrder.BranchId || null,
+                type: 'REDEEM',
+                points: -pointsRedeemed,
+                amount: Number(paidOrder.DiscountAmount || 0),
+                orderNo: paidOrder.OrderNo,
+                referenceId: paidOrder.Id,
+                note: 'Đổi điểm tại POS',
+                createdBy: req.user?.id,
+              },
+            });
+          }
+        });
+
+        await pool.request()
+          .input('Id', sql.NVarChar(64), req.params.id)
+          .input('PointsEarned', sql.Int, pointsEarned)
+          .query('UPDATE dbo.ComPosOrders SET PointsEarned=@PointsEarned WHERE Id=@Id');
+      } catch (customerError: any) {
+        console.error('POS customer loyalty update failed:', customerError.message || customerError);
+      }
     }
     res.json({ success: true, data: await getOrderById(req.params.id), stockWarning });
   } catch (error: any) {

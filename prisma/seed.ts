@@ -497,6 +497,19 @@ async function main() {
     });
   }
 
+  const extraMenus = [
+    { code: 'BRANCH_MANAGEMENT', name: 'Quản lý chi nhánh', path: '/admin/system/branches', icon: 'Store', sortOrder: 41 },
+    { code: 'FACE_ATTENDANCE', name: 'Khuôn mặt & chấm công', path: '/admin/face-registration', icon: 'ScanFace', sortOrder: 42 },
+  ];
+
+  for (const m of extraMenus) {
+    await prisma.menu.upsert({
+      where: { code: m.code },
+      update: { name: m.name, path: m.path, icon: m.icon, sortOrder: m.sortOrder },
+      create: m,
+    });
+  }
+
   // 13. Map Superadmin Role to Admin User
   const dbAdminUser = await prisma.user.findUnique({ where: { email: adminEmail } });
   const superadminRole = await prisma.role.findUnique({ where: { code: 'SUPERADMIN' } });
@@ -563,11 +576,13 @@ async function main() {
     ORDER_POS: view,
     POS_RUNNER: view,
     KITCHEN_INVENTORY: ['VIEW', 'CREATE'],
+    FACE_ATTENDANCE: ['CREATE'],
   });
 
   await grantRolePermissions('STAFF', {
     DASHBOARD: view,
     POS_RUNNER: view,
+    FACE_ATTENDANCE: ['CREATE'],
     PAYMENT_REQUEST: entry,
     SUPPLIER_CATEGORY: view,
   });
@@ -577,6 +592,8 @@ async function main() {
     ORDER_POS: pos,
     POS_RUNNER: view,
     KITCHEN_INVENTORY: ['VIEW', 'CREATE'],
+    CUSTOMER_MANAGEMENT: ['VIEW', 'CREATE', 'EDIT'],
+    FACE_ATTENDANCE: ['CREATE'],
     PAYMENT_REQUEST: entry,
     SUPPLIER_CATEGORY: view,
   });
@@ -589,6 +606,7 @@ async function main() {
     KITCHEN_INVENTORY: maintain,
     MENU_MANAGEMENT: maintain,
     DISH_CATEGORY: maintain,
+    CUSTOMER_MANAGEMENT: maintain,
     PAYMENT_REQUEST: maintain,
     PAYMENT_REQUEST_APPROVAL: approve,
     PAYMENT_VOUCHER: ['VIEW', 'CREATE', 'PRINT'],
@@ -599,6 +617,7 @@ async function main() {
     SUPPLIER_CATEGORY: maintain,
     SUPPLIER_DEBT: maintain,
     PAYROLL: maintain,
+    FACE_ATTENDANCE: maintain,
     BLOG_CATEGORY: content,
     BLOG_POST: content,
     SEO_PAGE: content,
@@ -638,6 +657,9 @@ async function main() {
     PERMISSION_MANAGEMENT: maintain,
     AUDIT_LOG: view,
     SYSTEM_CONFIG: maintain,
+    BRANCH_MANAGEMENT: maintain,
+    CUSTOMER_MANAGEMENT: maintain,
+    FACE_ATTENDANCE: maintain,
     SUPPLIER_CATEGORY: maintain,
     SUPPLIER_DEBT: maintain,
     KITCHEN_INVENTORY: maintain,

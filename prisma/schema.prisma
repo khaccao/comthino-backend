@@ -8,31 +8,74 @@ generator client {
 }
 
 model User {
-  id            String     @id @default(uuid())
-  fullName      String
-  email         String     @unique
-  phone         String?
-  passwordHash  String
-  avatarUrl     String?
-  role          String     @default("ADMIN") // For fallback/compatibility
-  isActive      Boolean    @default(true)
-  isSystemAdmin Boolean    @default(false)
-  twoFactorEnabled Boolean @default(false)
-  twoFactorSecret String?
+  id                   String    @id @default(uuid())
+  fullName             String
+  email                String    @unique
+  phone                String?
+  passwordHash         String
+  avatarUrl            String?
+  role                 String    @default("ADMIN") // For fallback/compatibility
+  isActive             Boolean   @default(true)
+  isSystemAdmin        Boolean   @default(false)
+  twoFactorEnabled     Boolean   @default(false)
+  twoFactorSecret      String?
   twoFactorActivatedAt DateTime?
-  lastLoginAt   DateTime?
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-  createdBy     String?
-  updatedBy     String?
+  lastLoginAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  createdBy            String?
+  updatedBy            String?
 
-  userRoles     UserRole[]
-  auditLogs     AuditLog[]
-  paymentRequests  PaymentRequest[]  @relation("Requester")
-  approvedRequests PaymentRequest[]  @relation("Approver")
-  createdVouchers  PaymentVoucher[]  @relation("VoucherCreator")
+  userRoles        UserRole[]
+  userBranches     UserBranch[]
+  auditLogs        AuditLog[]
+  paymentRequests  PaymentRequest[] @relation("Requester")
+  approvedRequests PaymentRequest[] @relation("Approver")
+  createdVouchers  PaymentVoucher[] @relation("VoucherCreator")
 
   @@map("Users")
+}
+
+model Branch {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  address     String?  @db.NVarChar(MAX)
+  phone       String?
+  email       String?
+  managerName String?
+  openingTime String?
+  closingTime String?
+  status      String   @default("ACTIVE")
+  latitude    Decimal? @db.Decimal(18, 8)
+  longitude   Decimal? @db.Decimal(18, 8)
+  taxCode     String?
+  invoiceName String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userBranches      UserBranch[]
+  customers         Customer[]                 @relation("CustomerRegisteredBranch")
+  payrollEmployees  PayrollEmployee[]
+  pointTransactions CustomerPointTransaction[]
+  vouchers          VoucherBranch[]
+  customerVouchers  CustomerVoucher[]
+
+  @@map("Branches")
+}
+
+model UserBranch {
+  id        String   @id @default(uuid())
+  userId    String
+  branchId  String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, branchId])
+  @@map("UserBranches")
 }
 
 model SiteSettings {
@@ -131,17 +174,17 @@ model MenuItem {
 }
 
 model Promotion {
-  id           String    @id @default(uuid())
+  id           String   @id @default(uuid())
   title        String
-  description  String?   @db.NVarChar(MAX)
+  description  String?  @db.NVarChar(MAX)
   imageUrl     String
   startDate    DateTime
   endDate      DateTime
   discountText String?
   buttonText   String?
   buttonLink   String?
-  isActive     Boolean   @default(true)
-  createdAt    DateTime  @default(now())
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
 
   @@map("Promotions")
 }
@@ -312,17 +355,172 @@ model CustomerReview {
   @@map("CustomerReviews")
 }
 
+model Customer {
+  id                 String    @id @default(uuid())
+  code               String    @unique
+  fullName           String
+  phone              String?
+  email              String?
+  birthday           DateTime?
+  gender             String?
+  tierId             String?
+  registeredBranchId String?
+  status             String    @default("ACTIVE")
+  currentPoints      Int       @default(0)
+  totalOrders        Int       @default(0)
+  totalSpent         Decimal   @default(0.0) @db.Decimal(18, 2)
+  lastOrderAt        DateTime?
+  note               String?   @db.NVarChar(MAX)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  tier             MembershipTier?            @relation(fields: [tierId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  registeredBranch Branch?                    @relation("CustomerRegisteredBranch", fields: [registeredBranchId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  points           CustomerPointTransaction[]
+  vouchers         CustomerVoucher[]
+  notes            CustomerNote[]
+
+  @@index([phone])
+  @@index([registeredBranchId])
+  @@map("Customers")
+}
+
+model CustomerNote {
+  id         String   @id @default(uuid())
+  customerId String
+  note       String   @db.NVarChar(MAX)
+  createdBy  String?
+  createdAt  DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, createdAt])
+  @@map("CustomerNotes")
+}
+
+model MembershipTier {
+  id              String   @id @default(uuid())
+  code            String   @unique
+  name            String
+  minSpent        Decimal  @default(0.0) @db.Decimal(18, 2)
+  minPoints       Int      @default(0)
+  discountPercent Decimal  @default(0.0) @db.Decimal(5, 2)
+  description     String?  @db.NVarChar(MAX)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  customers Customer[]
+  vouchers  Voucher[]
+
+  @@map("MembershipTiers")
+}
+
+model LoyaltySetting {
+  id               String   @id @default(uuid())
+  code             String   @unique @default("DEFAULT")
+  pointsPerAmount  Decimal  @default(10000.0) @db.Decimal(18, 2)
+  pointsEarned     Int      @default(1)
+  minOrderAmount   Decimal  @default(0.0) @db.Decimal(18, 2)
+  maxRedeemPercent Decimal  @default(30.0) @db.Decimal(5, 2)
+  pointValueAmount Decimal  @default(1000.0) @db.Decimal(18, 2)
+  pointExpiryDays  Int?
+  isActive         Boolean  @default(true)
+  updatedAt        DateTime @updatedAt
+
+  @@map("LoyaltySettings")
+}
+
+model CustomerPointTransaction {
+  id          String    @id @default(uuid())
+  customerId  String
+  branchId    String?
+  type        String
+  points      Int
+  amount      Decimal   @default(0.0) @db.Decimal(18, 2)
+  orderNo     String?
+  referenceId String?
+  note        String?   @db.NVarChar(MAX)
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  createdBy   String?
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  branch   Branch?  @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([customerId, createdAt])
+  @@index([branchId, createdAt])
+  @@map("CustomerPointTransactions")
+}
+
+model Voucher {
+  id             String    @id @default(uuid())
+  code           String    @unique
+  name           String
+  description    String?   @db.NVarChar(MAX)
+  discountType   String    @default("AMOUNT")
+  discountValue  Decimal   @default(0.0) @db.Decimal(18, 2)
+  minOrderAmount Decimal   @default(0.0) @db.Decimal(18, 2)
+  maxDiscount    Decimal?  @db.Decimal(18, 2)
+  scope          String    @default("ALL_BRANCHES")
+  tierId         String?
+  startAt        DateTime?
+  endAt          DateTime?
+  usageLimit     Int?
+  usedCount      Int       @default(0)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tier      MembershipTier?   @relation(fields: [tierId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  branches  VoucherBranch[]
+  customers CustomerVoucher[]
+
+  @@index([scope, isActive])
+  @@map("Vouchers")
+}
+
+model VoucherBranch {
+  id        String @id @default(uuid())
+  voucherId String
+  branchId  String
+
+  voucher Voucher @relation(fields: [voucherId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  branch  Branch  @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([voucherId, branchId])
+  @@map("VoucherBranches")
+}
+
+model CustomerVoucher {
+  id         String    @id @default(uuid())
+  customerId String
+  voucherId  String
+  branchId   String?
+  status     String    @default("ISSUED")
+  assignedAt DateTime  @default(now())
+  usedAt     DateTime?
+  orderNo    String?
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  voucher  Voucher  @relation(fields: [voucherId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  branch   Branch?  @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([customerId, status])
+  @@map("CustomerVouchers")
+}
+
 // User role management tables
 model Role {
-  id           String           @id @default(uuid())
-  code         String           @unique
+  id           String   @id @default(uuid())
+  code         String   @unique
   name         String
-  description  String?          @db.NVarChar(MAX)
-  isSystemRole Boolean          @default(false)
-  isActive     Boolean          @default(true)
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  
+  description  String?  @db.NVarChar(MAX)
+  isSystemRole Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
   userRoles       UserRole[]
   rolePermissions RolePermission[]
 
@@ -334,7 +532,7 @@ model UserRole {
   userId    String
   roleId    String
   createdAt DateTime @default(now())
-  
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
@@ -343,16 +541,16 @@ model UserRole {
 }
 
 model Menu {
-  id        String   @id @default(uuid())
-  code      String   @unique
+  id        String  @id @default(uuid())
+  code      String  @unique
   name      String
   path      String?
   icon      String?
   parentId  String?
-  sortOrder Int      @default(0)
-  isActive  Boolean  @default(true)
-  isVisible Boolean  @default(true)
-  
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+  isVisible Boolean @default(true)
+
   parent          Menu?            @relation("MenuToMenu", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   children        Menu[]           @relation("MenuToMenu")
   rolePermissions RolePermission[]
@@ -361,11 +559,11 @@ model Menu {
 }
 
 model Permission {
-  id          String   @id @default(uuid())
-  code        String   @unique
+  id          String  @id @default(uuid())
+  code        String  @unique
   name        String
-  description String?  @db.NVarChar(MAX)
-  
+  description String? @db.NVarChar(MAX)
+
   rolePermissions RolePermission[]
 
   @@map("Permissions")
@@ -379,7 +577,7 @@ model RolePermission {
   isAllowed    Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-  
+
   role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   menu       Menu       @relation(fields: [menuId], references: [id], onDelete: Cascade)
   permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
@@ -390,13 +588,13 @@ model RolePermission {
 
 // Payment/Expense management tables
 model ExpenseCategory {
-  id           String   @id @default(uuid())
-  code         String   @unique
-  name         String
-  group        String
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  group     String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   paymentRequests PaymentRequest[]
   paymentVouchers PaymentVoucher[]
@@ -405,12 +603,12 @@ model ExpenseCategory {
 }
 
 model PaymentMethod {
-  id           String   @id @default(uuid())
-  code         String   @unique
-  name         String
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   paymentVouchers PaymentVoucher[]
 
@@ -418,13 +616,13 @@ model PaymentMethod {
 }
 
 model CashAccount {
-  id           String   @id @default(uuid())
-  code         String   @unique
-  name         String
-  balance      Decimal  @default(0.0) @db.Decimal(18, 2)
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  balance   Decimal  @default(0.0) @db.Decimal(18, 2)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   paymentVouchers PaymentVoucher[]
 
@@ -432,23 +630,23 @@ model CashAccount {
 }
 
 model Supplier {
-  id           String   @id @default(uuid())
-  name         String
-  contactName  String?
-  phone        String?
-  taxCode      String?
-  address      String?
-  bankName     String?
-  bankAccountNo String?
-  bankAccountName String?
-  currentDebt  Decimal  @default(0.0) @db.Decimal(18, 2)
-  paymentTerm  String?
-  paymentTermDays Int?
-  paymentDueDate DateTime?
-  paymentWarningDays Int @default(3)
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                 String    @id @default(uuid())
+  name               String
+  contactName        String?
+  phone              String?
+  taxCode            String?
+  address            String?
+  bankName           String?
+  bankAccountNo      String?
+  bankAccountName    String?
+  currentDebt        Decimal   @default(0.0) @db.Decimal(18, 2)
+  paymentTerm        String?
+  paymentTermDays    Int?
+  paymentDueDate     DateTime?
+  paymentWarningDays Int       @default(3)
+  isActive           Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   paymentRequests PaymentRequest[]
   paymentVouchers PaymentVoucher[]
@@ -458,23 +656,23 @@ model Supplier {
 }
 
 model SupplierDebtNote {
-  id             String   @id @default(uuid())
-  code           String   @unique
-  supplierId     String
-  debtDate       DateTime
-  dueDate        DateTime?
-  title          String
-  description    String?  @db.NVarChar(MAX)
-  amount         Decimal  @db.Decimal(18, 2)
-  paidAmount     Decimal  @default(0.0) @db.Decimal(18, 2)
-  remainingAmount Decimal @default(0.0) @db.Decimal(18, 2)
-  status         String   @default("UNPAID") // UNPAID, PARTIAL, PAID, CANCELLED
-  attachmentUrl  String?  @db.NVarChar(MAX)
-  createdById    String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id              String    @id @default(uuid())
+  code            String    @unique
+  supplierId      String
+  debtDate        DateTime
+  dueDate         DateTime?
+  title           String
+  description     String?   @db.NVarChar(MAX)
+  amount          Decimal   @db.Decimal(18, 2)
+  paidAmount      Decimal   @default(0.0) @db.Decimal(18, 2)
+  remainingAmount Decimal   @default(0.0) @db.Decimal(18, 2)
+  status          String    @default("UNPAID") // UNPAID, PARTIAL, PAID, CANCELLED
+  attachmentUrl   String?   @db.NVarChar(MAX)
+  createdById     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  supplier        Supplier         @relation(fields: [supplierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   paymentVouchers PaymentVoucher[]
 
   @@index([supplierId, debtDate])
@@ -509,32 +707,32 @@ model PaymentRequest {
 }
 
 model PaymentVoucher {
-  id                String    @id @default(uuid())
-  code              String    @unique
-  paymentDate       DateTime  @default(now())
+  id                String   @id @default(uuid())
+  code              String   @unique
+  paymentDate       DateTime @default(now())
   paymentRequestId  String?
-  supplierId         String?
-  supplierDebtId     String?
+  supplierId        String?
+  supplierDebtId    String?
   recipientName     String
-  reason            String    @db.NVarChar(MAX)
-  amount            Decimal   @db.Decimal(18, 2)
+  reason            String   @db.NVarChar(MAX)
+  amount            Decimal  @db.Decimal(18, 2)
   paymentMethodId   String
   cashAccountId     String
   expenseCategoryId String
-  attachmentUrl     String?   @db.NVarChar(MAX)
-  notes             String?   @db.NVarChar(MAX)
-  status            String    @default("UNPOSTED") // UNPOSTED, POSTED (đối soát/ghi sổ)
+  attachmentUrl     String?  @db.NVarChar(MAX)
+  notes             String?  @db.NVarChar(MAX)
+  status            String   @default("UNPOSTED") // UNPOSTED, POSTED (đối soát/ghi sổ)
   createdById       String
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  paymentRequest  PaymentRequest?  @relation(fields: [paymentRequestId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  supplier        Supplier?        @relation(fields: [supplierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  paymentRequest  PaymentRequest?   @relation(fields: [paymentRequestId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  supplier        Supplier?         @relation(fields: [supplierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   supplierDebt    SupplierDebtNote? @relation(fields: [supplierDebtId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  paymentMethod   PaymentMethod    @relation(fields: [paymentMethodId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  cashAccount     CashAccount      @relation(fields: [cashAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  expenseCategory ExpenseCategory  @relation(fields: [expenseCategoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  creator         User             @relation("VoucherCreator", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  paymentMethod   PaymentMethod     @relation(fields: [paymentMethodId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cashAccount     CashAccount       @relation(fields: [cashAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  expenseCategory ExpenseCategory   @relation(fields: [expenseCategoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  creator         User              @relation("VoucherCreator", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("PaymentVouchers")
 }
@@ -559,42 +757,57 @@ model WorkShift {
 }
 
 model PayrollEmployee {
-  id             String   @id @default(uuid())
-  code           String   @unique
-  fullName       String
-  phone          String?
-  position       String?
-  defaultShiftId String?
-  hourlyRate     Decimal? @db.Decimal(18, 2)
-  note           String?  @db.NVarChar(MAX)
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id               String    @id @default(uuid())
+  code             String    @unique
+  fullName         String
+  phone            String?
+  department       String?
+  position         String?
+  avatarUrl        String?
+  branchId         String?
+  defaultShiftId   String?
+  hourlyRate       Decimal?  @db.Decimal(18, 2)
+  faceStatus       String    @default("NOT_REGISTERED")
+  faceRegisteredAt DateTime?
+  note             String?   @db.NVarChar(MAX)
+  isActive         Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  defaultShift WorkShift?         @relation(fields: [defaultShiftId], references: [id], onDelete: SetNull, onUpdate: NoAction)
-  attendances  AttendanceRecord[]
-  payrollLines PayrollLine[]
-  kpiRecords   EmployeeKpiRecord[]
-  adjustments  EmployeeRewardPenalty[]
+  branch            Branch?                    @relation(fields: [branchId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  defaultShift      WorkShift?                 @relation(fields: [defaultShiftId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  attendances       AttendanceRecord[]
+  payrollLines      PayrollLine[]
+  kpiRecords        EmployeeKpiRecord[]
+  adjustments       EmployeeRewardPenalty[]
+  faceRegistrations EmployeeFaceRegistration[]
+  faceImages        EmployeeFaceImage[]
 
   @@map("PayrollEmployees")
 }
 
 model AttendanceRecord {
-  id           String    @id @default(uuid())
-  employeeId   String
-  shiftId      String?
-  workDate     DateTime
-  clockIn      DateTime
-  clockOut     DateTime?
-  breakMinutes Int       @default(0)
-  hourlyRate   Decimal   @default(0.0) @db.Decimal(18, 2)
-  totalHours   Decimal   @default(0.0) @db.Decimal(10, 2)
-  grossAmount  Decimal   @default(0.0) @db.Decimal(18, 2)
-  note         String?   @db.NVarChar(MAX)
-  status       String    @default("RECORDED")
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id                    String    @id @default(uuid())
+  employeeId            String
+  shiftId               String?
+  workDate              DateTime
+  clockIn               DateTime
+  clockOut              DateTime?
+  breakMinutes          Int       @default(0)
+  hourlyRate            Decimal   @default(0.0) @db.Decimal(18, 2)
+  totalHours            Decimal   @default(0.0) @db.Decimal(10, 2)
+  grossAmount           Decimal   @default(0.0) @db.Decimal(18, 2)
+  note                  String?   @db.NVarChar(MAX)
+  status                String    @default("RECORDED")
+  faceCapturedImageUrl  String?   @db.NVarChar(MAX)
+  faceImageKitFileId    String?
+  recognitionStatus     String?
+  recognitionConfidence Decimal?  @db.Decimal(8, 6)
+  recognitionDeviceId   String?
+  recognitionLocationId String?
+  recognizedAt          DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   employee PayrollEmployee @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   shift    WorkShift?      @relation(fields: [shiftId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -604,22 +817,62 @@ model AttendanceRecord {
   @@map("AttendanceRecords")
 }
 
+model EmployeeFaceRegistration {
+  id           String   @id @default(uuid())
+  employeeId   String
+  employeeCode String
+  status       String   @default("REGISTERED")
+  registeredAt DateTime @default(now())
+  registeredBy String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  isActive     Boolean  @default(true)
+
+  employee PayrollEmployee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  images   EmployeeFaceImage[]
+
+  @@index([employeeId, isActive])
+  @@map("EmployeeFaceRegistrations")
+}
+
+model EmployeeFaceImage {
+  id                 String   @id @default(uuid())
+  faceRegistrationId String
+  employeeId         String
+  pose               String
+  imageUrl           String   @db.NVarChar(MAX)
+  imageKitFileId     String?
+  faceDetected       Boolean  @default(false)
+  faceCount          Int      @default(0)
+  embedding          String?  @db.NVarChar(MAX)
+  embeddingVersion   String?
+  createdAt          DateTime @default(now())
+  isActive           Boolean  @default(true)
+
+  registration EmployeeFaceRegistration @relation(fields: [faceRegistrationId], references: [id], onDelete: Cascade)
+  employee     PayrollEmployee          @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([faceRegistrationId, pose])
+  @@index([employeeId, pose])
+  @@map("EmployeeFaceImages")
+}
+
 model PayrollRun {
-  id          String   @id @default(uuid())
-  code        String   @unique
-  periodStart DateTime
-  periodEnd   DateTime
-  status      String   @default("DRAFT")
-  totalHours  Decimal  @default(0.0) @db.Decimal(18, 2)
-  totalAmount Decimal  @default(0.0) @db.Decimal(18, 2)
-  totalKpiReward Decimal @default(0.0) @db.Decimal(18, 2)
-  totalBonus     Decimal @default(0.0) @db.Decimal(18, 2)
-  totalPenalty   Decimal @default(0.0) @db.Decimal(18, 2)
-  netAmount      Decimal @default(0.0) @db.Decimal(18, 2)
-  note        String?  @db.NVarChar(MAX)
-  createdBy   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(uuid())
+  code           String   @unique
+  periodStart    DateTime
+  periodEnd      DateTime
+  status         String   @default("DRAFT")
+  totalHours     Decimal  @default(0.0) @db.Decimal(18, 2)
+  totalAmount    Decimal  @default(0.0) @db.Decimal(18, 2)
+  totalKpiReward Decimal  @default(0.0) @db.Decimal(18, 2)
+  totalBonus     Decimal  @default(0.0) @db.Decimal(18, 2)
+  totalPenalty   Decimal  @default(0.0) @db.Decimal(18, 2)
+  netAmount      Decimal  @default(0.0) @db.Decimal(18, 2)
+  note           String?  @db.NVarChar(MAX)
+  createdBy      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   lines PayrollLine[]
 
@@ -628,24 +881,24 @@ model PayrollRun {
 }
 
 model PayrollLine {
-  id              String  @id @default(uuid())
+  id              String   @id @default(uuid())
   payrollRunId    String
   employeeId      String
   employeeCode    String
   employeeName    String
   position        String?
   shiftName       String?
-  attendanceCount Int     @default(0)
-  totalHours      Decimal @default(0.0) @db.Decimal(18, 2)
-  hourlyRate      Decimal @default(0.0) @db.Decimal(18, 2)
-  grossAmount     Decimal @default(0.0) @db.Decimal(18, 2)
+  attendanceCount Int      @default(0)
+  totalHours      Decimal  @default(0.0) @db.Decimal(18, 2)
+  hourlyRate      Decimal  @default(0.0) @db.Decimal(18, 2)
+  grossAmount     Decimal  @default(0.0) @db.Decimal(18, 2)
   kpiScore        Decimal? @db.Decimal(10, 2)
   kpiLevelName    String?
-  kpiRewardAmount Decimal @default(0.0) @db.Decimal(18, 2)
-  bonusAmount     Decimal @default(0.0) @db.Decimal(18, 2)
-  penaltyAmount   Decimal @default(0.0) @db.Decimal(18, 2)
-  netAmount       Decimal @default(0.0) @db.Decimal(18, 2)
-  note            String? @db.NVarChar(MAX)
+  kpiRewardAmount Decimal  @default(0.0) @db.Decimal(18, 2)
+  bonusAmount     Decimal  @default(0.0) @db.Decimal(18, 2)
+  penaltyAmount   Decimal  @default(0.0) @db.Decimal(18, 2)
+  netAmount       Decimal  @default(0.0) @db.Decimal(18, 2)
+  note            String?  @db.NVarChar(MAX)
 
   payrollRun PayrollRun      @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
   employee   PayrollEmployee @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -697,7 +950,7 @@ model RewardPenaltyCategory {
   code          String   @unique
   name          String
   type          String   @default("BONUS") // BONUS, PENALTY
-  severity      String?  // INFO, WARNING, MINOR, MAJOR, CRITICAL
+  severity      String? // INFO, WARNING, MINOR, MAJOR, CRITICAL
   defaultAmount Decimal  @default(0.0) @db.Decimal(18, 2)
   description   String?  @db.NVarChar(MAX)
   isActive      Boolean  @default(true)
@@ -710,20 +963,20 @@ model RewardPenaltyCategory {
 }
 
 model EmployeeRewardPenalty {
-  id            String   @id @default(uuid())
-  employeeId    String
-  categoryId    String?
-  type          String   @default("BONUS") // BONUS, PENALTY
-  severity      String?
-  incidentDate  DateTime
-  amount        Decimal  @default(0.0) @db.Decimal(18, 2)
-  reason        String   @db.NVarChar(MAX)
-  status        String   @default("PENDING") // PENDING, APPLIED, CANCELLED
-  appliedAt     DateTime?
-  note          String?  @db.NVarChar(MAX)
-  createdBy     String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String    @id @default(uuid())
+  employeeId   String
+  categoryId   String?
+  type         String    @default("BONUS") // BONUS, PENALTY
+  severity     String?
+  incidentDate DateTime
+  amount       Decimal   @default(0.0) @db.Decimal(18, 2)
+  reason       String    @db.NVarChar(MAX)
+  status       String    @default("PENDING") // PENDING, APPLIED, CANCELLED
+  appliedAt    DateTime?
+  note         String?   @db.NVarChar(MAX)
+  createdBy    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   employee PayrollEmployee        @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   category RewardPenaltyCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull, onUpdate: NoAction)

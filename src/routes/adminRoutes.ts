@@ -106,6 +106,29 @@ import {
   upsertKitchenRecipe,
   upsertKitchenUnit,
 } from '../controllers/kitchenInventoryController';
+import {
+  assignUserBranches,
+  createBranch,
+  getBranch,
+  getBranches,
+  updateBranch,
+} from '../controllers/branchController';
+import {
+  addCustomerPointTransaction,
+  createCustomer,
+  getCustomer,
+  getCustomerBootstrap,
+  getCustomers,
+  updateCustomer,
+  upsertVoucher,
+  validateVoucher,
+} from '../controllers/customerController';
+import { getImageKitAuth } from '../controllers/imageKitController';
+import {
+  getFaceRegistrationBootstrap,
+  recognizeFaceAttendance,
+  registerEmployeeFace,
+} from '../controllers/faceAttendanceController';
 
 // Import New RBAC and Cash Payment controllers
 import {
@@ -204,6 +227,32 @@ router.use(authenticateJWT);
 
 // Dashboard
 router.get('/dashboard', requirePermission('DASHBOARD', 'VIEW'), requireRevenueOtp, getDashboard);
+
+// Shared ImageKit upload auth for face attendance photos
+router.get('/imagekit/auth', requirePermission('FACE_ATTENDANCE', 'CREATE'), getImageKitAuth);
+
+// Branch / chain management
+router.get('/branches', requirePermission('BRANCH_MANAGEMENT', 'VIEW'), getBranches);
+router.get('/branches/:id', requirePermission('BRANCH_MANAGEMENT', 'VIEW'), getBranch);
+router.post('/branches', requirePermission('BRANCH_MANAGEMENT', 'CREATE'), createBranch);
+router.put('/branches/:id', requirePermission('BRANCH_MANAGEMENT', 'EDIT'), updateBranch);
+router.put('/users/:userId/branches', requirePermission('BRANCH_MANAGEMENT', 'EDIT'), assignUserBranches);
+
+// Customers / loyalty
+router.get('/customers/bootstrap', requirePermission('CUSTOMER_MANAGEMENT', 'VIEW'), getCustomerBootstrap);
+router.get('/customers', requirePermission('CUSTOMER_MANAGEMENT', 'VIEW'), getCustomers);
+router.post('/customers', requirePermission('CUSTOMER_MANAGEMENT', 'CREATE'), createCustomer);
+router.post('/customers/points', requirePermission('CUSTOMER_MANAGEMENT', 'EDIT'), addCustomerPointTransaction);
+router.post('/customers/vouchers/validate', requirePermission('CUSTOMER_MANAGEMENT', 'VIEW'), validateVoucher);
+router.post('/customers/vouchers', requirePermission('CUSTOMER_MANAGEMENT', 'CREATE'), upsertVoucher);
+router.put('/customers/vouchers/:id', requirePermission('CUSTOMER_MANAGEMENT', 'EDIT'), upsertVoucher);
+router.get('/customers/:id', requirePermission('CUSTOMER_MANAGEMENT', 'VIEW'), getCustomer);
+router.put('/customers/:id', requirePermission('CUSTOMER_MANAGEMENT', 'EDIT'), updateCustomer);
+
+// Face registration / face attendance
+router.get('/face-registration/bootstrap', requirePermission('FACE_ATTENDANCE', 'VIEW'), requirePayrollOtp, getFaceRegistrationBootstrap);
+router.post('/face-registration', requirePermission('FACE_ATTENDANCE', 'EDIT'), registerEmployeeFace);
+router.post('/face-attendance/recognize', requirePermission('FACE_ATTENDANCE', 'CREATE'), recognizeFaceAttendance);
 
 // POS
 router.get('/pos/bootstrap', requirePermission('ORDER_POS', 'VIEW'), getPosBootstrap);
