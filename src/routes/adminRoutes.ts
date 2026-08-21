@@ -116,10 +116,13 @@ import {
 import {
   addCustomerPointTransaction,
   createCustomer,
+  deleteMembershipTier,
   getCustomer,
   getCustomerBootstrap,
   getCustomers,
+  updateLoyaltySetting,
   updateCustomer,
+  upsertMembershipTier,
   upsertVoucher,
   validateVoucher,
 } from '../controllers/customerController';
@@ -252,6 +255,10 @@ router.get('/customers/bootstrap', requirePermission('CUSTOMER_MANAGEMENT', 'VIE
 router.get('/customers', requirePermission('CUSTOMER_MANAGEMENT', 'VIEW'), getCustomers);
 router.post('/customers', requirePermission('CUSTOMER_MANAGEMENT', 'CREATE'), createCustomer);
 router.post('/customers/points', requirePermission('CUSTOMER_MANAGEMENT', 'EDIT'), addCustomerPointTransaction);
+router.put('/customers/loyalty-setting', requirePermission('CUSTOMER_MANAGEMENT', 'EDIT'), updateLoyaltySetting);
+router.post('/customers/tiers', requirePermission('CUSTOMER_MANAGEMENT', 'CREATE'), upsertMembershipTier);
+router.put('/customers/tiers/:id', requirePermission('CUSTOMER_MANAGEMENT', 'EDIT'), upsertMembershipTier);
+router.delete('/customers/tiers/:id', requirePermission('CUSTOMER_MANAGEMENT', 'DELETE'), deleteMembershipTier);
 router.post('/customers/vouchers/validate', requirePermission('CUSTOMER_MANAGEMENT', 'VIEW'), validateVoucher);
 router.post('/customers/vouchers', requirePermission('CUSTOMER_MANAGEMENT', 'CREATE'), upsertVoucher);
 router.put('/customers/vouchers/:id', requirePermission('CUSTOMER_MANAGEMENT', 'EDIT'), upsertVoucher);

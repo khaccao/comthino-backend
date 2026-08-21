@@ -419,7 +419,7 @@ model MembershipTier {
 model LoyaltySetting {
   id               String   @id @default(uuid())
   code             String   @unique @default("DEFAULT")
-  pointsPerAmount  Decimal  @default(10000.0) @db.Decimal(18, 2)
+  pointsPerAmount  Decimal  @default(1000.0) @db.Decimal(18, 2)
   pointsEarned     Int      @default(1)
   minOrderAmount   Decimal  @default(0.0) @db.Decimal(18, 2)
   maxRedeemPercent Decimal  @default(30.0) @db.Decimal(5, 2)
@@ -479,6 +479,7 @@ model Voucher {
   discountValue  Decimal   @default(0.0) @db.Decimal(18, 2)
   minOrderAmount Decimal   @default(0.0) @db.Decimal(18, 2)
   maxDiscount    Decimal?  @db.Decimal(18, 2)
+  pointsCost     Int       @default(0)
   scope          String    @default("ALL_BRANCHES")
   tierId         String?
   startAt        DateTime?

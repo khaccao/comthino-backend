@@ -25,12 +25,33 @@ const voucherSchema = z.object({
   discountValue: z.coerce.number().min(0).default(0),
   minOrderAmount: z.coerce.number().min(0).default(0),
   maxDiscount: z.coerce.number().min(0).optional().nullable(),
+  pointsCost: z.coerce.number().int().min(0).default(0),
   scope: z.enum(['ALL_BRANCHES', 'SELECTED_BRANCHES', 'SELECTED_CUSTOMERS', 'TIER']).default('ALL_BRANCHES'),
   tierId: z.string().optional().nullable(),
   branchIds: z.array(z.string()).optional().default([]),
   startAt: z.string().optional().nullable(),
   endAt: z.string().optional().nullable(),
   usageLimit: z.coerce.number().int().min(0).optional().nullable(),
+  isActive: z.boolean().optional(),
+});
+
+const loyaltySettingSchema = z.object({
+  pointsPerAmount: z.coerce.number().min(1).default(1000),
+  pointsEarned: z.coerce.number().int().min(1).default(1),
+  minOrderAmount: z.coerce.number().min(0).default(0),
+  maxRedeemPercent: z.coerce.number().min(0).max(100).default(30),
+  pointValueAmount: z.coerce.number().min(0).default(1000),
+  pointExpiryDays: z.coerce.number().int().min(0).optional().nullable(),
+  isActive: z.boolean().optional(),
+});
+
+const tierSchema = z.object({
+  code: z.string().min(1),
+  name: z.string().min(1),
+  minSpent: z.coerce.number().min(0).default(0),
+  minPoints: z.coerce.number().int().min(0).default(0),
+  discountPercent: z.coerce.number().min(0).max(100).default(0),
+  description: z.string().optional().nullable(),
   isActive: z.boolean().optional(),
 });
 
@@ -59,6 +80,7 @@ const serializeVoucher = (item: any) => ({
   discountValue: money(item.discountValue),
   minOrderAmount: money(item.minOrderAmount),
   maxDiscount: item.maxDiscount === null || item.maxDiscount === undefined ? null : money(item.maxDiscount),
+  pointsCost: Number(item.pointsCost || 0),
 });
 
 const nextCustomerCode = async () => {
@@ -68,18 +90,24 @@ const nextCustomerCode = async () => {
 
 export const ensureLoyaltyDefaults = async () => {
   const branch = await ensureDefaultBranch();
-  await prisma.loyaltySetting.upsert({
-    where: { code: 'DEFAULT' },
-    update: {},
-    create: {
-      code: 'DEFAULT',
-      pointsPerAmount: 10000,
-      pointsEarned: 1,
-      minOrderAmount: 0,
-      maxRedeemPercent: 30,
-      pointValueAmount: 1000,
-    },
-  });
+  const existingSetting = await prisma.loyaltySetting.findUnique({ where: { code: 'DEFAULT' } });
+  if (!existingSetting) {
+    await prisma.loyaltySetting.create({
+      data: {
+        code: 'DEFAULT',
+        pointsPerAmount: 1000,
+        pointsEarned: 1,
+        minOrderAmount: 0,
+        maxRedeemPercent: 30,
+        pointValueAmount: 1000,
+      },
+    });
+  } else if (Number(existingSetting.pointsPerAmount || 0) === 10000 && Number(existingSetting.pointsEarned || 0) === 1) {
+    await prisma.loyaltySetting.update({
+      where: { code: 'DEFAULT' },
+      data: { pointsPerAmount: 1000, pointsEarned: 1 },
+    });
+  }
 
   const tiers = [
     { code: 'STANDARD', name: 'Thành viên', minSpent: 0, minPoints: 0 },
@@ -90,6 +118,60 @@ export const ensureLoyaltyDefaults = async () => {
     await prisma.membershipTier.upsert({ where: { code: tier.code }, update: tier, create: tier });
   }
   return branch;
+};
+
+export const updateLoyaltySetting = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const data = loyaltySettingSchema.parse(req.body);
+    const item = await prisma.loyaltySetting.upsert({
+      where: { code: 'DEFAULT' },
+      update: data,
+      create: { code: 'DEFAULT', ...data },
+    });
+    res.json({
+      success: true,
+      data: {
+        ...item,
+        pointsPerAmount: money(item.pointsPerAmount),
+        minOrderAmount: money(item.minOrderAmount),
+        maxRedeemPercent: money(item.maxRedeemPercent),
+        pointValueAmount: money(item.pointValueAmount),
+      },
+    });
+  } catch (error: any) {
+    res.status(400).json({ success: false, message: error.message || 'Không lưu được cấu hình tích điểm.' });
+  }
+};
+
+export const upsertMembershipTier = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const data = tierSchema.parse(req.body);
+    const tierId = String(req.params.id || req.body.id || '').trim();
+    const payload = {
+      code: data.code.trim().toUpperCase(),
+      name: data.name.trim(),
+      minSpent: data.minSpent,
+      minPoints: data.minPoints,
+      discountPercent: data.discountPercent,
+      description: data.description || null,
+      isActive: data.isActive ?? true,
+    };
+    const item = tierId
+      ? await prisma.membershipTier.update({ where: { id: tierId }, data: payload })
+      : await prisma.membershipTier.upsert({ where: { code: payload.code }, update: payload, create: payload });
+    res.json({ success: true, data: serializeCustomer({ tier: item }).tier });
+  } catch (error: any) {
+    res.status(400).json({ success: false, message: error.message || 'Không lưu được hạng thành viên.' });
+  }
+};
+
+export const deleteMembershipTier = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await prisma.membershipTier.update({ where: { id: req.params.id }, data: { isActive: false } });
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(400).json({ success: false, message: error.message || 'Không tắt được hạng thành viên.' });
+  }
 };
 
 export const getCustomerBootstrap = async (_req: AuthenticatedRequest, res: Response) => {
@@ -266,6 +348,7 @@ export const upsertVoucher = async (req: AuthenticatedRequest, res: Response) =>
       discountValue: data.discountValue,
       minOrderAmount: data.minOrderAmount,
       maxDiscount: data.maxDiscount,
+      pointsCost: data.pointsCost,
       scope: data.scope,
       tierId: data.tierId || null,
       startAt: dateOrNull(data.startAt),
@@ -312,6 +395,15 @@ export const validateVoucher = async (req: AuthenticatedRequest, res: Response) 
     else if (voucher.usageLimit && voucher.usedCount >= voucher.usageLimit) reason = 'Voucher đã hết lượt sử dụng.';
     else if (voucher.scope === 'SELECTED_BRANCHES' && !voucher.branches.some((item) => item.branchId === branchId)) reason = 'Voucher không áp dụng cho chi nhánh này.';
     else if (voucher.scope === 'SELECTED_CUSTOMERS' && !voucher.customers.some((item) => item.customerId === customerId)) reason = 'Voucher không áp dụng cho khách hàng này.';
+    else if (Number(voucher.pointsCost || 0) > 0) {
+      if (!customerId) reason = 'Cần chọn khách thành viên để dùng voucher đổi điểm.';
+      else {
+        const customer = await prisma.customer.findUnique({ where: { id: customerId }, select: { currentPoints: true } });
+        if (!customer || Number(customer.currentPoints || 0) < Number(voucher.pointsCost || 0)) {
+          reason = 'Khách không đủ điểm để dùng voucher này.';
+        }
+      }
+    }
 
     if (reason || !voucher) {
       res.json({ success: true, data: { valid: false, reason } });

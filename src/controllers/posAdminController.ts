@@ -1377,14 +1377,14 @@ export const payPosOrder = async (req: AuthenticatedRequest, res: Response) => {
     if (paidOrder?.CustomerId) {
       try {
         const setting = await prisma.loyaltySetting.findUnique({ where: { code: 'DEFAULT' } });
-        const pointsPerAmount = Number(setting?.pointsPerAmount || 10000);
+        const pointsPerAmount = Number(setting?.pointsPerAmount || 1000);
         const pointsEarnedUnit = Number(setting?.pointsEarned || 1);
         const pointsEarned = pointsPerAmount > 0
           ? Math.floor(Number(paidOrder.TotalAmount || 0) / pointsPerAmount) * pointsEarnedUnit
           : 0;
 
         await prisma.$transaction(async (tx) => {
-          await tx.customer.update({
+          const updatedCustomer = await tx.customer.update({
             where: { id: String(paidOrder.CustomerId) },
             data: {
               totalOrders: { increment: 1 },
@@ -1393,6 +1393,21 @@ export const payPosOrder = async (req: AuthenticatedRequest, res: Response) => {
               lastOrderAt: paidOrder.PaidAt || new Date(),
             },
           });
+
+          const tiers = await tx.membershipTier.findMany({
+            where: { isActive: true },
+            orderBy: [{ minPoints: 'desc' }, { minSpent: 'desc' }],
+          });
+          const nextTier = tiers.find((tier) =>
+            Number(updatedCustomer.currentPoints || 0) >= Number(tier.minPoints || 0) &&
+            Number(updatedCustomer.totalSpent || 0) >= Number(tier.minSpent || 0),
+          );
+          if (nextTier && updatedCustomer.tierId !== nextTier.id) {
+            await tx.customer.update({
+              where: { id: String(paidOrder.CustomerId) },
+              data: { tierId: nextTier.id },
+            });
+          }
 
           if (pointsEarned) {
             await tx.customerPointTransaction.create({
@@ -1424,6 +1439,21 @@ export const payPosOrder = async (req: AuthenticatedRequest, res: Response) => {
                 note: 'Đổi điểm tại POS',
                 createdBy: req.user?.id,
               },
+            });
+          }
+
+          if (paidOrder.VoucherId) {
+            await tx.voucher.update({
+              where: { id: String(paidOrder.VoucherId) },
+              data: { usedCount: { increment: 1 } },
+            });
+            await tx.customerVoucher.updateMany({
+              where: {
+                customerId: String(paidOrder.CustomerId),
+                voucherId: String(paidOrder.VoucherId),
+                status: 'ISSUED',
+              },
+              data: { status: 'USED', usedAt: paidOrder.PaidAt || new Date(), orderNo: paidOrder.OrderNo },
             });
           }
         });
