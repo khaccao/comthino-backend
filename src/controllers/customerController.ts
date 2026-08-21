@@ -218,8 +218,12 @@ export const updateCustomer = async (req: AuthenticatedRequest, res: Response) =
         ...data,
         code: data.code ? data.code.trim().toUpperCase() : undefined,
         fullName: data.fullName ? data.fullName.trim() : undefined,
+        phone: data.phone === '' ? null : data.phone,
         email: data.email === '' ? null : data.email,
         birthday: data.birthday === undefined ? undefined : dateOrNull(data.birthday),
+        tierId: data.tierId === undefined ? undefined : data.tierId || null,
+        registeredBranchId: data.registeredBranchId === undefined ? undefined : data.registeredBranchId || null,
+        note: data.note === '' ? null : data.note,
       },
       include: { tier: true, registeredBranch: true },
     });
