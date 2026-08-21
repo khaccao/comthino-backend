@@ -5,8 +5,8 @@ import { AuthenticatedRequest } from '../middlewares/auth';
 import {
   analyzeFaceImage,
   cosineSimilarity,
-  duplicateAttendanceWindowSeconds,
   faceThreshold,
+  getFaceRecognitionRuntimeConfig,
   parseStoredEmbedding,
 } from '../services/faceRecognitionService';
 
@@ -172,6 +172,7 @@ export const registerEmployeeFace = async (req: AuthenticatedRequest, res: Respo
 export const recognizeFaceAttendance = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const data = recognizeSchema.parse(req.body);
+    const runtimeConfig = await getFaceRecognitionRuntimeConfig();
     const analysis = await analyzeFaceImage(data.imageUrl);
     if (analysis.faceCount !== 1) {
       res.status(400).json({
@@ -201,12 +202,12 @@ export const recognizeFaceAttendance = async (req: AuthenticatedRequest, res: Re
       if (!best || confidence > best.confidence) best = { employee, confidence };
     }
 
-    if (!best || best.confidence < faceThreshold()) {
+    if (!best || best.confidence < runtimeConfig.threshold) {
       res.status(403).json({
         success: false,
         code: best ? 'LOW_CONFIDENCE' : 'FACE_NOT_RECOGNIZED',
         message: 'Không nhận diện được nhân viên với độ tin cậy đủ cao.',
-        data: { confidence: best?.confidence || 0, threshold: faceThreshold() },
+        data: { confidence: best?.confidence || 0, threshold: runtimeConfig.threshold },
       });
       return;
     }
@@ -218,7 +219,7 @@ export const recognizeFaceAttendance = async (req: AuthenticatedRequest, res: Re
     const recent = await prisma.attendanceRecord.findFirst({
       where: {
         employeeId: employee.id,
-        recognizedAt: { gte: new Date(now.getTime() - duplicateAttendanceWindowSeconds() * 1000) },
+        recognizedAt: { gte: new Date(now.getTime() - runtimeConfig.duplicateWindowSeconds * 1000) },
       },
       orderBy: { recognizedAt: 'desc' },
     });

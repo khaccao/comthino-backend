@@ -502,6 +502,8 @@ async function main() {
     { code: 'FACE_ATTENDANCE', name: 'Khuôn mặt & chấm công', path: '/admin/face-registration', icon: 'ScanFace', sortOrder: 42 },
   ];
 
+  extraMenus.push({ code: 'CAO_RESTAURANT_DATA', name: 'Dữ liệu nhà hàng CAO', path: '/admin/cao-restaurant', icon: 'Database', sortOrder: 43 });
+
   for (const m of extraMenus) {
     await prisma.menu.upsert({
       where: { code: m.code },
@@ -618,6 +620,7 @@ async function main() {
     SUPPLIER_DEBT: maintain,
     PAYROLL: maintain,
     FACE_ATTENDANCE: maintain,
+    CAO_RESTAURANT_DATA: view,
     BLOG_CATEGORY: content,
     BLOG_POST: content,
     SEO_PAGE: content,
@@ -660,6 +663,7 @@ async function main() {
     BRANCH_MANAGEMENT: maintain,
     CUSTOMER_MANAGEMENT: maintain,
     FACE_ATTENDANCE: maintain,
+    CAO_RESTAURANT_DATA: view,
     SUPPLIER_CATEGORY: maintain,
     SUPPLIER_DEBT: maintain,
     KITCHEN_INVENTORY: maintain,

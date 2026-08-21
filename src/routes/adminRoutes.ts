@@ -129,6 +129,15 @@ import {
   recognizeFaceAttendance,
   registerEmployeeFace,
 } from '../controllers/faceAttendanceController';
+import {
+  getFaceRecognitionConfig,
+  healthCheckFaceRecognition,
+  updateFaceRecognitionConfig,
+} from '../controllers/faceRecognitionConfigController';
+import {
+  getCaoRestaurantCatalog,
+  previewCaoRestaurantTable,
+} from '../controllers/caoRestaurantDataController';
 
 // Import New RBAC and Cash Payment controllers
 import {
@@ -253,6 +262,13 @@ router.put('/customers/:id', requirePermission('CUSTOMER_MANAGEMENT', 'EDIT'), u
 router.get('/face-registration/bootstrap', requirePermission('FACE_ATTENDANCE', 'VIEW'), requirePayrollOtp, getFaceRegistrationBootstrap);
 router.post('/face-registration', requirePermission('FACE_ATTENDANCE', 'EDIT'), registerEmployeeFace);
 router.post('/face-attendance/recognize', requirePermission('FACE_ATTENDANCE', 'CREATE'), recognizeFaceAttendance);
+router.get('/face-recognition/config', requirePermission('FACE_ATTENDANCE', 'VIEW'), getFaceRecognitionConfig);
+router.put('/face-recognition/config', requirePermission('FACE_ATTENDANCE', 'EDIT'), updateFaceRecognitionConfig);
+router.post('/face-recognition/health', requirePermission('FACE_ATTENDANCE', 'VIEW'), healthCheckFaceRecognition);
+
+// CAO_BNHHotelManagement restaurant data catalog
+router.get('/cao-restaurant/catalog', requirePermission('CAO_RESTAURANT_DATA', 'VIEW'), getCaoRestaurantCatalog);
+router.get('/cao-restaurant/tables/:tableName/preview', requirePermission('CAO_RESTAURANT_DATA', 'VIEW'), previewCaoRestaurantTable);
 
 // POS
 router.get('/pos/bootstrap', requirePermission('ORDER_POS', 'VIEW'), getPosBootstrap);

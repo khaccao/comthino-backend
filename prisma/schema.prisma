@@ -431,6 +431,23 @@ model LoyaltySetting {
   @@map("LoyaltySettings")
 }
 
+model FaceRecognitionSetting {
+  id                     String   @id @default(uuid())
+  code                   String   @unique @default("DEFAULT")
+  provider               String   @default("EXTERNAL")
+  apiUrl                 String?  @db.NVarChar(MAX)
+  apiKey                 String?  @db.NVarChar(MAX)
+  threshold              Decimal  @default(0.75) @db.Decimal(8, 6)
+  duplicateWindowSeconds Int      @default(10)
+  isActive               Boolean  @default(true)
+  lastHealthStatus       String?
+  lastHealthMessage      String?  @db.NVarChar(MAX)
+  lastHealthCheckedAt    DateTime?
+  updatedAt              DateTime @updatedAt
+
+  @@map("FaceRecognitionSettings")
+}
+
 model CustomerPointTransaction {
   id          String    @id @default(uuid())
   customerId  String
