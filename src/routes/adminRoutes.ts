@@ -141,6 +141,17 @@ import {
   getCaoRestaurantCatalog,
   previewCaoRestaurantTable,
 } from '../controllers/caoRestaurantDataController';
+import {
+  applyBuilderTheme,
+  createBuilderSite,
+  getWebsiteBuilderBootstrap,
+  publishBuilderSite,
+  rollbackBuilderDeployment,
+  saveBuilderPageDraft,
+  updateBuilderSite,
+  upsertBuilderDomain,
+  verifyBuilderDomain,
+} from '../controllers/websiteBuilderController';
 
 // Import New RBAC and Cash Payment controllers
 import {
@@ -276,6 +287,17 @@ router.post('/face-recognition/health', requirePermission('FACE_ATTENDANCE', 'VI
 // CAO_BNHHotelManagement restaurant data catalog
 router.get('/cao-restaurant/catalog', requirePermission('CAO_RESTAURANT_DATA', 'VIEW'), getCaoRestaurantCatalog);
 router.get('/cao-restaurant/tables/:tableName/preview', requirePermission('CAO_RESTAURANT_DATA', 'VIEW'), previewCaoRestaurantTable);
+
+// Hospitality Website Builder platform foundation
+router.get('/website-builder/bootstrap', requirePermission('WEBSITE_BUILDER', 'VIEW'), getWebsiteBuilderBootstrap);
+router.post('/website-builder/sites', requirePermission('WEBSITE_BUILDER', 'CREATE'), createBuilderSite);
+router.put('/website-builder/sites/:siteId', requirePermission('WEBSITE_BUILDER', 'EDIT'), updateBuilderSite);
+router.post('/website-builder/sites/:siteId/apply-theme', requirePermission('WEBSITE_BUILDER', 'EDIT'), applyBuilderTheme);
+router.post('/website-builder/pages/:pageId/save-draft', requirePermission('WEBSITE_BUILDER', 'EDIT'), saveBuilderPageDraft);
+router.post('/website-builder/sites/:siteId/domains', requirePermission('WEBSITE_BUILDER', 'EDIT'), upsertBuilderDomain);
+router.post('/website-builder/domains/:domainId/verify', requirePermission('WEBSITE_BUILDER', 'EDIT'), verifyBuilderDomain);
+router.post('/website-builder/sites/:siteId/publish', requirePermission('WEBSITE_BUILDER', 'APPROVE'), publishBuilderSite);
+router.post('/website-builder/deployments/:deploymentId/rollback', requirePermission('WEBSITE_BUILDER', 'CANCEL'), rollbackBuilderDeployment);
 
 // POS
 router.get('/pos/bootstrap', requirePermission('ORDER_POS', 'VIEW'), getPosBootstrap);

@@ -101,6 +101,195 @@ model SiteSettings {
   @@map("SiteSettings")
 }
 
+model BuilderTenant {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("BuilderTenants")
+}
+
+model BuilderSite {
+  id                    String   @id @default(uuid())
+  tenantId              String
+  name                  String
+  slug                  String
+  industryType          String   @default("RESTAURANT")
+  locale                String   @default("vi-VN")
+  defaultCurrency       String   @default("VND")
+  timeZone              String   @default("Asia/Ho_Chi_Minh")
+  status                String   @default("DRAFT")
+  currentThemeVersionId String?
+  activeDeploymentId    String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, status])
+  @@map("BuilderSites")
+}
+
+model BuilderTheme {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  industry  String
+  author    String?
+  tags      String?  @db.NVarChar(MAX)
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([industry, status])
+  @@map("BuilderThemes")
+}
+
+model BuilderThemeVersion {
+  id                String   @id @default(uuid())
+  themeId           String
+  version           String
+  engineRange       String   @default(">=1.0 <2.0")
+  manifestJson      String   @db.NVarChar(MAX)
+  tokensJson        String   @db.NVarChar(MAX)
+  pageTemplatesJson String   @db.NVarChar(MAX)
+  presetsJson       String?  @db.NVarChar(MAX)
+  assetsJson        String?  @db.NVarChar(MAX)
+  migrationsJson    String?  @db.NVarChar(MAX)
+  status            String   @default("ACTIVE")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([themeId, version])
+  @@index([themeId, status])
+  @@map("BuilderThemeVersions")
+}
+
+model BuilderComponentDefinition {
+  id                String   @id @default(uuid())
+  key               String
+  version           String
+  category          String
+  displayName       String
+  propsSchemaJson   String   @db.NVarChar(MAX)
+  styleSchemaJson   String?  @db.NVarChar(MAX)
+  bindingSchemaJson String?  @db.NVarChar(MAX)
+  variantsJson      String?  @db.NVarChar(MAX)
+  slotsJson         String?  @db.NVarChar(MAX)
+  allowedParentsJson String? @db.NVarChar(MAX)
+  capabilitiesJson  String?  @db.NVarChar(MAX)
+  migrationJson     String?  @db.NVarChar(MAX)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([key, version])
+  @@index([category, isActive])
+  @@map("BuilderComponentDefinitions")
+}
+
+model BuilderDesignTokenSet {
+  id        String   @id @default(uuid())
+  tenantId  String
+  siteId    String
+  name      String
+  scope     String   @default("SITE")
+  tokensJson String  @db.NVarChar(MAX)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([siteId, isActive])
+  @@map("BuilderDesignTokenSets")
+}
+
+model BuilderPage {
+  id                    String   @id @default(uuid())
+  tenantId              String
+  siteId                String
+  name                  String
+  slug                  String
+  pageType              String
+  isDynamicTemplate     Boolean  @default(false)
+  dynamicSourceType     String?
+  status                String   @default("DRAFT")
+  currentDraftVersionId String?
+  publishedVersionId    String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([siteId, slug])
+  @@index([siteId, status])
+  @@map("BuilderPages")
+}
+
+model BuilderPageVersion {
+  id             String   @id @default(uuid())
+  tenantId       String
+  siteId         String
+  pageId         String
+  versionNo      Int
+  status         String   @default("DRAFT")
+  documentJson   String   @db.NVarChar(MAX)
+  validationJson String?  @db.NVarChar(MAX)
+  createdBy      String?
+  createdAt      DateTime @default(now())
+
+  @@unique([pageId, versionNo])
+  @@index([siteId, status])
+  @@map("BuilderPageVersions")
+}
+
+model BuilderDomain {
+  id             String   @id @default(uuid())
+  tenantId       String
+  siteId         String
+  hostname       String   @unique
+  isPrimary      Boolean  @default(false)
+  verificationToken String?
+  status         String   @default("PENDING_DNS")
+  sslStatus      String   @default("PENDING")
+  lastCheckedAt  DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([siteId, status])
+  @@map("BuilderDomains")
+}
+
+model BuilderSnapshot {
+  id                String   @id @default(uuid())
+  tenantId          String
+  siteId            String
+  themeVersionId    String?
+  snapshotJson      String   @db.NVarChar(MAX)
+  validationJson    String?  @db.NVarChar(MAX)
+  createdBy         String?
+  createdAt         DateTime @default(now())
+
+  @@index([siteId, createdAt])
+  @@map("BuilderSnapshots")
+}
+
+model BuilderDeployment {
+  id            String   @id @default(uuid())
+  tenantId      String
+  siteId        String
+  snapshotId    String
+  status        String   @default("QUEUED")
+  publicUrl     String?
+  logsJson      String?  @db.NVarChar(MAX)
+  activatedAt   DateTime?
+  createdBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([siteId, status])
+  @@map("BuilderDeployments")
+}
+
 model Banner {
   id           String   @id @default(uuid())
   title        String

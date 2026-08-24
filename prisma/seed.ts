@@ -503,6 +503,7 @@ async function main() {
   ];
 
   extraMenus.push({ code: 'CAO_RESTAURANT_DATA', name: 'Dữ liệu nhà hàng CAO', path: '/admin/cao-restaurant', icon: 'Database', sortOrder: 43 });
+  extraMenus.push({ code: 'WEBSITE_BUILDER', name: 'Website Builder', path: '/admin/website-builder', icon: 'PanelTop', sortOrder: 44 });
 
   for (const m of extraMenus) {
     await prisma.menu.upsert({
@@ -621,6 +622,7 @@ async function main() {
     PAYROLL: maintain,
     FACE_ATTENDANCE: maintain,
     CAO_RESTAURANT_DATA: view,
+    WEBSITE_BUILDER: ['VIEW', 'CREATE', 'EDIT', 'APPROVE', 'CANCEL', 'EXPORT'],
     BLOG_CATEGORY: content,
     BLOG_POST: content,
     SEO_PAGE: content,
@@ -664,6 +666,7 @@ async function main() {
     CUSTOMER_MANAGEMENT: maintain,
     FACE_ATTENDANCE: maintain,
     CAO_RESTAURANT_DATA: view,
+    WEBSITE_BUILDER: ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'APPROVE', 'CANCEL', 'EXPORT'],
     SUPPLIER_CATEGORY: maintain,
     SUPPLIER_DEBT: maintain,
     KITCHEN_INVENTORY: maintain,
