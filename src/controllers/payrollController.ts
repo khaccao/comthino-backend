@@ -88,6 +88,16 @@ const rewardPenaltySchema = z.object({
 const money = (value: any) => Number(value || 0);
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
+const buildNextPayrollRunCode = async (tx: any) => {
+  const rows: Array<{ nextNo: number | bigint | null }> = await tx.$queryRaw`
+    SELECT ISNULL(MAX(TRY_CONVERT(int, SUBSTRING([code], 3, 20))), 0) + 1 AS nextNo
+    FROM [PayrollRuns]
+    WHERE [code] LIKE 'BL%'
+  `;
+  const nextNo = Number(rows?.[0]?.nextNo || 1);
+  return `BL${String(nextNo).padStart(4, '0')}`;
+};
+
 const vietnamDateKey = (date = new Date()) => {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Asia/Ho_Chi_Minh',
@@ -769,24 +779,49 @@ export const generatePayrollRun = async (req: AuthenticatedRequest, res: Respons
     const totalBonus = Math.round(lines.reduce((sum, line) => sum + line.bonusAmount, 0));
     const totalPenalty = Math.round(lines.reduce((sum, line) => sum + line.penaltyAmount, 0));
     const netAmount = Math.round(lines.reduce((sum, line) => sum + line.netAmount, 0));
-    const count = await prisma.payrollRun.count();
-    const code = `BL${String(count + 1).padStart(4, '0')}`;
-    const item = await prisma.payrollRun.create({
-      data: {
-        code,
-        periodStart,
-        periodEnd,
-        note: data.note,
-        totalHours,
-        totalAmount,
-        totalKpiReward,
-        totalBonus,
-        totalPenalty,
-        netAmount,
-        createdBy: req.user?.email,
-        lines: { create: lines.map((line) => ({ ...line })) },
-      },
-      include: { lines: true },
+    const item = await prisma.$transaction(async (tx) => {
+      const existing = await tx.payrollRun.findFirst({
+        where: { periodStart, periodEnd },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (existing) {
+        await tx.payrollLine.deleteMany({ where: { payrollRunId: existing.id } });
+        return tx.payrollRun.update({
+          where: { id: existing.id },
+          data: {
+            note: data.note,
+            totalHours,
+            totalAmount,
+            totalKpiReward,
+            totalBonus,
+            totalPenalty,
+            netAmount,
+            createdBy: req.user?.email,
+            lines: { create: lines.map((line) => ({ ...line })) },
+          },
+          include: { lines: true },
+        });
+      }
+
+      const code = await buildNextPayrollRunCode(tx);
+      return tx.payrollRun.create({
+        data: {
+          code,
+          periodStart,
+          periodEnd,
+          note: data.note,
+          totalHours,
+          totalAmount,
+          totalKpiReward,
+          totalBonus,
+          totalPenalty,
+          netAmount,
+          createdBy: req.user?.email,
+          lines: { create: lines.map((line) => ({ ...line })) },
+        },
+        include: { lines: true },
+      });
     });
     res.status(201).json({ success: true, item: serializeRun(item) });
   } catch (error: any) {
