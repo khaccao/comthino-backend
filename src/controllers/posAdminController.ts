@@ -29,6 +29,21 @@ const defaultPaymentSettings = [
 
 const row = <T>(recordset: T[]) => recordset[0] || null;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const vietnamDateParts = (date = new Date()) => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const value = (type: string) => parts.find((part) => part.type === type)?.value || '';
+  return { year: value('year'), month: value('month'), day: value('day') };
+};
+const buildOrderNoPrefix = (date = new Date()) => {
+  const { year, month, day } = vietnamDateParts(date);
+  return `CTN${year.slice(2)}${month}${day}`;
+};
+const createDraftOrderNo = () => `DRAFT-${newId().replace(/-/g, '').slice(0, 18).toUpperCase()}`;
 const formatVietnamServerTime = (date = new Date()) =>
   new Intl.DateTimeFormat('vi-VN', {
     timeZone: 'Asia/Ho_Chi_Minh',
@@ -753,6 +768,8 @@ const cleanupEmptyOpenOrders = async (pool: sql.ConnectionPool) => {
   await withSqlRetry(() =>
     pool.request().query(`
 DECLARE @EmptyOrders TABLE (Id NVARCHAR(64), TableId NVARCHAR(64));
+DECLARE @EmptyDraftOrders TABLE (Id NVARCHAR(64), TableId NVARCHAR(64));
+DECLARE @EmptyFinalOrders TABLE (Id NVARCHAR(64), TableId NVARCHAR(64));
 
 INSERT INTO @EmptyOrders (Id, TableId)
 SELECT o.Id, o.TableId
@@ -760,8 +777,19 @@ FROM dbo.ComPosOrders o WITH (READPAST)
 WHERE o.Status = 'OPEN'
   AND NOT EXISTS (SELECT 1 FROM dbo.ComPosOrderItems i WHERE i.OrderId = o.Id);
 
-DELETE i FROM dbo.ComPosOrderItems i WHERE EXISTS (SELECT 1 FROM @EmptyOrders e WHERE e.Id = i.OrderId);
-DELETE o FROM dbo.ComPosOrders o WHERE EXISTS (SELECT 1 FROM @EmptyOrders e WHERE e.Id = o.Id);
+INSERT INTO @EmptyDraftOrders (Id, TableId)
+SELECT Id, TableId FROM @EmptyOrders WHERE Id IN (SELECT Id FROM dbo.ComPosOrders WHERE OrderNo LIKE 'DRAFT-%');
+
+INSERT INTO @EmptyFinalOrders (Id, TableId)
+SELECT Id, TableId FROM @EmptyOrders WHERE Id NOT IN (SELECT Id FROM @EmptyDraftOrders);
+
+DELETE i FROM dbo.ComPosOrderItems i WHERE EXISTS (SELECT 1 FROM @EmptyDraftOrders e WHERE e.Id = i.OrderId);
+DELETE o FROM dbo.ComPosOrders o WHERE EXISTS (SELECT 1 FROM @EmptyDraftOrders e WHERE e.Id = o.Id);
+
+UPDATE o
+SET Status='CANCELLED', UpdatedAt=SYSDATETIME()
+FROM dbo.ComPosOrders o
+WHERE EXISTS (SELECT 1 FROM @EmptyFinalOrders e WHERE e.Id = o.Id);
 
 UPDATE t
 SET Status = 'AVAILABLE', UpdatedAt = SYSDATETIME()
@@ -776,6 +804,64 @@ WHERE EXISTS (SELECT 1 FROM @EmptyOrders e WHERE e.TableId = t.Id)
   );
 `),
   );
+};
+
+const assignFinalOrderNoIfNeeded = async (pool: sql.ConnectionPool, orderId: string) => {
+  const prefix = buildOrderNoPrefix();
+  const result = await withSqlRetry(() =>
+    pool
+      .request()
+      .input('OrderId', sql.NVarChar(64), orderId)
+      .input('Prefix', sql.NVarChar(20), prefix)
+      .input('LockName', sql.NVarChar(120), `ComPosOrderNo:${prefix}`)
+      .query(`
+SET XACT_ABORT ON;
+BEGIN TRAN;
+
+DECLARE @LockResult INT;
+EXEC @LockResult = sp_getapplock
+  @Resource = @LockName,
+  @LockMode = 'Exclusive',
+  @LockOwner = 'Transaction',
+  @LockTimeout = 10000;
+
+IF @LockResult < 0
+BEGIN
+  ROLLBACK TRAN;
+  THROW 51001, 'Khong khoa duoc so order POS.', 1;
+END;
+
+DECLARE @CurrentOrderNo NVARCHAR(60);
+SELECT @CurrentOrderNo = OrderNo
+FROM dbo.ComPosOrders WITH (UPDLOCK, HOLDLOCK)
+WHERE Id = @OrderId;
+
+IF @CurrentOrderNo IS NULL
+BEGIN
+  ROLLBACK TRAN;
+  THROW 51002, 'Khong tim thay order POS.', 1;
+END;
+
+IF @CurrentOrderNo LIKE 'DRAFT-%'
+BEGIN
+  DECLARE @NextNo INT;
+  SELECT @NextNo = ISNULL(MAX(TRY_CONVERT(INT, SUBSTRING(OrderNo, LEN(@Prefix) + 2, 20))), 0) + 1
+  FROM dbo.ComPosOrders WITH (UPDLOCK, HOLDLOCK)
+  WHERE OrderNo LIKE @Prefix + '-%';
+
+  SET @CurrentOrderNo = @Prefix + '-' + RIGHT('000' + CONVERT(VARCHAR(10), @NextNo), 3);
+
+  UPDATE dbo.ComPosOrders
+  SET OrderNo=@CurrentOrderNo, UpdatedAt=SYSDATETIME()
+  WHERE Id=@OrderId;
+END;
+
+COMMIT TRAN;
+
+SELECT @CurrentOrderNo AS OrderNo;
+`),
+  );
+  return row<{ OrderNo: string }>(result.recordset)?.OrderNo || '';
 };
 
 const getOrderById = async (orderId: string) => {
@@ -809,6 +895,7 @@ SELECT
   o.VatAmount,
   o.TotalAmount,
   o.PaymentQrUrl,
+  CAST(NULL AS NVARCHAR(40)) AS PaymentMethod,
   o.CreateDate AS CreatedAt,
   o.PaidAt,
   (SELECT COUNT(1) FROM dbo.PosOrderItems i WHERE i.OrderGuid = o.Guid) AS ItemCount,
@@ -902,20 +989,7 @@ WHERE currentOrder.Id = @Id;
 `);
 };
 
-const generateOrderNo = async () => {
-  const pool = await getCaoPool();
-  const prefix = `CTN${new Date().toISOString().slice(2, 10).replace(/-/g, '')}`;
-  const result = await pool
-    .request()
-    .input('Prefix', sql.NVarChar(20), prefix)
-    .query(`
-SELECT ISNULL(MAX(TRY_CONVERT(INT, SUBSTRING(OrderNo, LEN(@Prefix) + 2, 20))), 0) + 1 AS NextNo
-FROM dbo.ComPosOrders
-WHERE OrderNo LIKE @Prefix + '-%';
-`);
-  const nextNo = row<{ NextNo: number }>(result.recordset)?.NextNo || 1;
-  return `${prefix}-${String(nextNo).padStart(3, '0')}`;
-};
+const generateOrderNo = async () => createDraftOrderNo();
 
 export const getPosBootstrap = async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -1293,6 +1367,7 @@ export const addPosOrderItem = async (req: AuthenticatedRequest, res: Response) 
       return;
     }
 
+    await assignFinalOrderNoIfNeeded(pool, orderId);
     const itemId = newId();
     await pool
       .request()
@@ -1457,6 +1532,9 @@ ORDER BY CreatedAt ASC;
       return;
     }
 
+    const finalOrderNo = await assignFinalOrderNoIfNeeded(pool, req.params.id);
+    if (finalOrderNo) order.OrderNo = finalOrderNo;
+
     const countResult = await pool
       .request()
       .input('OrderId', sql.NVarChar(64), req.params.id)
@@ -1583,6 +1661,8 @@ WHERE OrderId=@Id
       });
       return;
     }
+    const finalOrderNo = await assignFinalOrderNoIfNeeded(pool, req.params.id);
+    if (finalOrderNo) order.OrderNo = finalOrderNo;
     await withSqlRetry(() => pool
       .request()
       .input('Id', sql.NVarChar(64), req.params.id)
@@ -1723,6 +1803,7 @@ FROM (
     o.VatAmount,
     o.TotalAmount,
     o.PaymentQrUrl,
+    o.PaymentMethod,
     o.CreatedAt,
     o.PaidAt,
     (SELECT COUNT(1) FROM dbo.ComPosOrderItems i WITH (READPAST) WHERE i.OrderId = o.Id) AS ItemCount,
@@ -1744,6 +1825,7 @@ FROM (
     o.VatAmount,
     o.TotalAmount,
     o.PaymentQrUrl,
+    CAST(NULL AS NVARCHAR(40)) AS PaymentMethod,
     o.CreateDate AS CreatedAt,
     o.PaidAt,
     (SELECT COUNT(1) FROM dbo.PosOrderItems i WITH (READPAST) WHERE i.OrderGuid = o.Guid) AS ItemCount,
