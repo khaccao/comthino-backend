@@ -298,7 +298,8 @@ IF COL_LENGTH('dbo.ComPosOrderItems', 'SentQuantity') IS NULL ALTER TABLE dbo.Co
 IF COL_LENGTH('dbo.ComPosOrderItems', 'LastKitchenPrintedAt') IS NULL ALTER TABLE dbo.ComPosOrderItems ADD LastKitchenPrintedAt DATETIME2 NULL;
 IF COL_LENGTH('dbo.ComPosOrderItems', 'RevenueRiskFlag') IS NULL ALTER TABLE dbo.ComPosOrderItems ADD RevenueRiskFlag BIT NOT NULL CONSTRAINT DF_ComPosOrderItems_RevenueRiskFlag_Alter DEFAULT 0;
 IF COL_LENGTH('dbo.ComPosOrderItems', 'RevenueRiskNote') IS NULL ALTER TABLE dbo.ComPosOrderItems ADD RevenueRiskNote NVARCHAR(MAX) NULL;
-UPDATE dbo.ComPosOrderItems SET SentQuantity = Quantity WHERE Status = 'SENT' AND ISNULL(SentQuantity, 0) = 0;
+IF COL_LENGTH('dbo.ComPosOrderItems', 'SentQuantity') IS NOT NULL
+  EXEC(N'UPDATE dbo.ComPosOrderItems SET SentQuantity = Quantity WHERE Status = ''SENT'' AND ISNULL(SentQuantity, 0) = 0');
 IF COL_LENGTH('dbo.ComPosOrders', 'DiscountType') IS NOT NULL
   AND COL_LENGTH('dbo.ComPosOrders', 'DiscountValue') IS NOT NULL
   AND COL_LENGTH('dbo.ComPosOrders', 'DiscountAmount') IS NOT NULL
