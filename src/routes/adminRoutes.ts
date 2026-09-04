@@ -81,6 +81,7 @@ import {
   getPosBootstrap,
   getPosDashboard,
   getPosHistory,
+  getPosKitchenPrintLogs,
   getPosOrderDetail,
   getPosPrintContext,
   getPosRunnerOrders,
@@ -311,6 +312,7 @@ router.post('/pos/menu-items', requirePermission('ORDER_POS', 'EDIT'), upsertPos
 router.put('/pos/menu-items/:id', requirePermission('ORDER_POS', 'EDIT'), upsertPosMenuItem);
 router.post('/pos/orders/open', requirePermission('ORDER_POS', 'CREATE'), openPosOrder);
 router.get('/pos/orders/history', requirePermission('ORDER_POS', 'VIEW'), requireRevenueOtp, getPosHistory);
+router.get('/pos/kitchen-print-logs', requirePermission('ORDER_POS', 'VIEW'), getPosKitchenPrintLogs);
 router.get('/pos/orders/:id/print-context', requirePermission('ORDER_POS', 'VIEW'), getPosPrintContext);
 router.get('/pos/orders/:id', requirePermission('ORDER_POS', 'VIEW'), getPosOrderDetail);
 router.put('/pos/orders/:id', requirePermission('ORDER_POS', 'EDIT'), updatePosOrder);

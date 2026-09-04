@@ -219,6 +219,49 @@ BEGIN
     UpdatedAt DATETIME2 NOT NULL CONSTRAINT DF_ComPosPaymentSettings_UpdatedAt DEFAULT SYSDATETIME()
   );
 END;
+
+IF OBJECT_ID(N'dbo.ComPosKitchenPrintLogs', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.ComPosKitchenPrintLogs (
+    Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+    OrderId NVARCHAR(64) NOT NULL,
+    OrderNo NVARCHAR(60) NOT NULL,
+    TableId NVARCHAR(64) NOT NULL,
+    TableName NVARCHAR(120) NOT NULL,
+    BranchId NVARCHAR(64) NULL,
+    PrintBatchNo INT NOT NULL,
+    PrintMode NVARCHAR(30) NOT NULL CONSTRAINT DF_ComPosKitchenPrintLogs_PrintMode DEFAULT 'PRINTED',
+    ItemCount INT NOT NULL CONSTRAINT DF_ComPosKitchenPrintLogs_ItemCount DEFAULT 0,
+    TotalQuantity DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosKitchenPrintLogs_TotalQuantity DEFAULT 0,
+    TotalAmount DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosKitchenPrintLogs_TotalAmount DEFAULT 0,
+    RiskNote NVARCHAR(MAX) NULL,
+    PrintedBy NVARCHAR(200) NULL,
+    PrintedAt DATETIME2 NOT NULL CONSTRAINT DF_ComPosKitchenPrintLogs_PrintedAt DEFAULT SYSDATETIME()
+  );
+  CREATE INDEX IX_ComPosKitchenPrintLogs_Order ON dbo.ComPosKitchenPrintLogs(OrderId, PrintedAt);
+  CREATE INDEX IX_ComPosKitchenPrintLogs_Date ON dbo.ComPosKitchenPrintLogs(PrintedAt);
+END;
+
+IF OBJECT_ID(N'dbo.ComPosKitchenPrintLogItems', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.ComPosKitchenPrintLogItems (
+    Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+    LogId NVARCHAR(64) NOT NULL,
+    OrderItemId NVARCHAR(64) NOT NULL,
+    MenuItemId NVARCHAR(64) NULL,
+    Code NVARCHAR(80) NULL,
+    Name NVARCHAR(220) NOT NULL,
+    UnitPrice DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosKitchenPrintLogItems_UnitPrice DEFAULT 0,
+    SnapshotQuantity DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosKitchenPrintLogItems_SnapshotQuantity DEFAULT 0,
+    PreviousSentQuantity DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosKitchenPrintLogItems_PreviousSentQuantity DEFAULT 0,
+    DeltaQuantity DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosKitchenPrintLogItems_DeltaQuantity DEFAULT 0,
+    Note NVARCHAR(MAX) NULL,
+    PreviousStatus NVARCHAR(30) NULL,
+    ActionType NVARCHAR(30) NOT NULL CONSTRAINT DF_ComPosKitchenPrintLogItems_ActionType DEFAULT 'SEND'
+  );
+  CREATE INDEX IX_ComPosKitchenPrintLogItems_Log ON dbo.ComPosKitchenPrintLogItems(LogId);
+  CREATE INDEX IX_ComPosKitchenPrintLogItems_OrderItem ON dbo.ComPosKitchenPrintLogItems(OrderItemId);
+END;
 `);
 
   await pool.request().batch(`
@@ -248,6 +291,14 @@ IF COL_LENGTH('dbo.ComPosOrders', 'PointsRedeemed') IS NULL ALTER TABLE dbo.ComP
 IF COL_LENGTH('dbo.ComPosOrders', 'DiscountType') IS NULL ALTER TABLE dbo.ComPosOrders ADD DiscountType NVARCHAR(20) NOT NULL CONSTRAINT DF_ComPosOrders_DiscountType_Alter DEFAULT 'AMOUNT';
 IF COL_LENGTH('dbo.ComPosOrders', 'DiscountValue') IS NULL ALTER TABLE dbo.ComPosOrders ADD DiscountValue DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrders_DiscountValue_Alter DEFAULT 0;
 IF COL_LENGTH('dbo.ComPosOrders', 'PaymentQrUrl') IS NULL ALTER TABLE dbo.ComPosOrders ADD PaymentQrUrl NVARCHAR(1000) NULL;
+IF COL_LENGTH('dbo.ComPosOrders', 'KitchenPrintCount') IS NULL ALTER TABLE dbo.ComPosOrders ADD KitchenPrintCount INT NOT NULL CONSTRAINT DF_ComPosOrders_KitchenPrintCount_Alter DEFAULT 0;
+IF COL_LENGTH('dbo.ComPosOrders', 'PaymentConfirmedBy') IS NULL ALTER TABLE dbo.ComPosOrders ADD PaymentConfirmedBy NVARCHAR(200) NULL;
+IF COL_LENGTH('dbo.ComPosOrders', 'PaymentRiskNote') IS NULL ALTER TABLE dbo.ComPosOrders ADD PaymentRiskNote NVARCHAR(MAX) NULL;
+IF COL_LENGTH('dbo.ComPosOrderItems', 'SentQuantity') IS NULL ALTER TABLE dbo.ComPosOrderItems ADD SentQuantity DECIMAL(18,2) NOT NULL CONSTRAINT DF_ComPosOrderItems_SentQuantity_Alter DEFAULT 0;
+IF COL_LENGTH('dbo.ComPosOrderItems', 'LastKitchenPrintedAt') IS NULL ALTER TABLE dbo.ComPosOrderItems ADD LastKitchenPrintedAt DATETIME2 NULL;
+IF COL_LENGTH('dbo.ComPosOrderItems', 'RevenueRiskFlag') IS NULL ALTER TABLE dbo.ComPosOrderItems ADD RevenueRiskFlag BIT NOT NULL CONSTRAINT DF_ComPosOrderItems_RevenueRiskFlag_Alter DEFAULT 0;
+IF COL_LENGTH('dbo.ComPosOrderItems', 'RevenueRiskNote') IS NULL ALTER TABLE dbo.ComPosOrderItems ADD RevenueRiskNote NVARCHAR(MAX) NULL;
+UPDATE dbo.ComPosOrderItems SET SentQuantity = Quantity WHERE Status = 'SENT' AND ISNULL(SentQuantity, 0) = 0;
 IF COL_LENGTH('dbo.ComPosOrders', 'DiscountType') IS NOT NULL
   AND COL_LENGTH('dbo.ComPosOrders', 'DiscountValue') IS NOT NULL
   AND COL_LENGTH('dbo.ComPosOrders', 'DiscountAmount') IS NOT NULL
@@ -690,7 +741,9 @@ const buildPaymentQrUrl = (setting: any, amount: number, orderNo: string) => {
 
 const orderSelect = `
 SELECT o.*,
-  (SELECT COUNT(1) FROM dbo.ComPosOrderItems i WHERE i.OrderId = o.Id) AS ItemCount
+  (SELECT COUNT(1) FROM dbo.ComPosOrderItems i WHERE i.OrderId = o.Id AND (i.Quantity > 0 OR ISNULL(i.SentQuantity, 0) > 0)) AS ItemCount,
+  (SELECT COUNT(1) FROM dbo.ComPosOrderItems i WHERE i.OrderId = o.Id AND (i.Quantity > 0 OR ISNULL(i.SentQuantity, 0) > 0) AND (i.Status IN ('NEW','CHANGED') OR ISNULL(i.SentQuantity, 0) <> ISNULL(i.Quantity, 0))) AS PendingKitchenItemCount,
+  (SELECT ISNULL(SUM(CASE WHEN ISNULL(i.Quantity, 0) > ISNULL(i.SentQuantity, 0) THEN ISNULL(i.Quantity, 0) - ISNULL(i.SentQuantity, 0) ELSE 0 END), 0) FROM dbo.ComPosOrderItems i WHERE i.OrderId = o.Id) AS PendingKitchenQuantity
 FROM dbo.ComPosOrders o`;
 
 const activeOrderWhere = `o.Status = 'ORDERED' OR EXISTS (SELECT 1 FROM dbo.ComPosOrderItems i WHERE i.OrderId = o.Id)`;
@@ -1267,14 +1320,27 @@ export const updatePosOrderItem = async (req: AuthenticatedRequest, res: Respons
   try {
     await ensurePosSchema();
     const pool = await getCaoPool();
+    const quantity = Math.max(0, toNumber(req.body.quantity));
     await pool
       .request()
       .input('Id', sql.NVarChar(64), req.params.itemId)
-      .input('Quantity', sql.Decimal(18, 2), Math.max(0, toNumber(req.body.quantity)))
+      .input('Quantity', sql.Decimal(18, 2), quantity)
       .input('UnitPrice', sql.Decimal(18, 2), Math.max(0, toNumber(req.body.unitPrice)))
       .input('Note', sql.NVarChar(sql.MAX), req.body.note || null)
-      .query('UPDATE dbo.ComPosOrderItems SET Quantity=@Quantity, UnitPrice=@UnitPrice, Note=@Note, Status = CASE WHEN Status = \'SENT\' THEN \'CHANGED\' ELSE Status END, UpdatedAt=SYSDATETIME() WHERE Id=@Id');
-    await pool.request().input('Id', sql.NVarChar(64), req.params.itemId).query('DELETE FROM dbo.ComPosOrderItems WHERE Id=@Id AND Quantity <= 0');
+      .query(`
+UPDATE dbo.ComPosOrderItems
+SET Quantity=@Quantity,
+    UnitPrice=@UnitPrice,
+    Note=@Note,
+    Status = CASE WHEN Status = 'SENT' OR ISNULL(SentQuantity, 0) > 0 THEN 'CHANGED' ELSE Status END,
+    RevenueRiskFlag = CASE WHEN ISNULL(SentQuantity, 0) > 0 AND @Quantity <> ISNULL(SentQuantity, 0) THEN 1 ELSE RevenueRiskFlag END,
+    RevenueRiskNote = CASE WHEN ISNULL(SentQuantity, 0) > 0 AND @Quantity <> ISNULL(SentQuantity, 0) THEN N'Mon da gui bep bi thay doi sau khi in bep.' ELSE RevenueRiskNote END,
+    UpdatedAt=SYSDATETIME()
+WHERE Id=@Id;
+
+DELETE FROM dbo.ComPosOrderItems
+WHERE Id=@Id AND Quantity <= 0 AND ISNULL(SentQuantity, 0) <= 0;
+`);
     await recalculateOrder(req.params.id);
     res.json({ success: true, data: await getOrderById(req.params.id) });
   } catch (error: any) {
@@ -1286,7 +1352,25 @@ export const deletePosOrderItem = async (req: AuthenticatedRequest, res: Respons
   try {
     await ensurePosSchema();
     const pool = await getCaoPool();
-    await pool.request().input('Id', sql.NVarChar(64), req.params.itemId).query('DELETE FROM dbo.ComPosOrderItems WHERE Id = @Id');
+    await pool
+      .request()
+      .input('Id', sql.NVarChar(64), req.params.itemId)
+      .query(`
+IF EXISTS (SELECT 1 FROM dbo.ComPosOrderItems WHERE Id=@Id AND ISNULL(SentQuantity, 0) > 0)
+BEGIN
+  UPDATE dbo.ComPosOrderItems
+  SET Quantity=0,
+      Status='CHANGED',
+      RevenueRiskFlag=1,
+      RevenueRiskNote=N'Mon da gui bep bi xoa khoi bill sau khi in bep.',
+      UpdatedAt=SYSDATETIME()
+  WHERE Id=@Id;
+END
+ELSE
+BEGIN
+  DELETE FROM dbo.ComPosOrderItems WHERE Id=@Id;
+END
+`);
     await recalculateOrder(req.params.id);
     res.json({ success: true, data: await getOrderById(req.params.id) });
   } catch (error: any) {
@@ -1338,12 +1422,122 @@ export const confirmKitchen = async (req: AuthenticatedRequest, res: Response) =
   try {
     await ensurePosSchema();
     const pool = await getCaoPool();
+    const order = await getOrderById(req.params.id);
+    if (!order) {
+      res.status(404).json({ success: false, message: 'Khong tim thay order.' });
+      return;
+    }
+
+    const pending = (await pool
+      .request()
+      .input('Id', sql.NVarChar(64), req.params.id)
+      .query(`
+SELECT
+  Id, OrderId, MenuItemId, Code, Name, UnitPrice, Quantity,
+  ISNULL(SentQuantity, 0) AS SentQuantity,
+  Note, Status,
+  CASE
+    WHEN ISNULL(SentQuantity, 0) = 0 THEN 'SEND'
+    WHEN ISNULL(Quantity, 0) > ISNULL(SentQuantity, 0) THEN 'ADD'
+    WHEN ISNULL(Quantity, 0) < ISNULL(SentQuantity, 0) THEN 'REDUCE'
+    ELSE 'CHANGE'
+  END AS ActionType,
+  ISNULL(Quantity, 0) - ISNULL(SentQuantity, 0) AS DeltaQuantity
+FROM dbo.ComPosOrderItems
+WHERE OrderId = @Id
+  AND (Quantity > 0 OR ISNULL(SentQuantity, 0) > 0)
+  AND (Status IN ('NEW','CHANGED') OR ISNULL(SentQuantity, 0) <> ISNULL(Quantity, 0))
+ORDER BY CreatedAt ASC;
+`)).recordset as any[];
+
+    if (!pending.length) {
+      await pool.request().input('Id', sql.NVarChar(64), req.params.id).query("UPDATE dbo.ComPosOrders SET Status='ORDERED', UpdatedAt=SYSDATETIME() WHERE Id=@Id");
+      res.json({ success: true, data: await getOrderById(req.params.id), printLog: null });
+      return;
+    }
+
+    const countResult = await pool
+      .request()
+      .input('OrderId', sql.NVarChar(64), req.params.id)
+      .query('SELECT ISNULL(MAX(PrintBatchNo), 0) + 1 AS NextBatchNo FROM dbo.ComPosKitchenPrintLogs WHERE OrderId=@OrderId');
+    const printBatchNo = Number(row<any>(countResult.recordset)?.NextBatchNo || 1);
+    const logId = newId();
+    const printMode = String(req.body.printMode || 'PRINTED').toUpperCase() === 'ACK_ONLY' ? 'ACK_ONLY' : 'PRINTED';
+    const totalQuantity = pending.reduce((sum, item) => sum + Math.abs(toNumber(item.DeltaQuantity || item.Quantity)), 0);
+    const totalAmount = pending.reduce((sum, item) => sum + Math.max(0, toNumber(item.Quantity) - toNumber(item.SentQuantity)) * toNumber(item.UnitPrice), 0);
+    const riskNote = printBatchNo > 1
+      ? `Mon phat sinh sau luot bep #${printBatchNo - 1}. Bat buoc ghi nhan de kiem soat doanh thu.`
+      : 'Luot gui bep dau tien.';
+
+    await pool
+      .request()
+      .input('Id', sql.NVarChar(64), logId)
+      .input('OrderId', sql.NVarChar(64), order.Id)
+      .input('OrderNo', sql.NVarChar(60), order.OrderNo)
+      .input('TableId', sql.NVarChar(64), order.TableId)
+      .input('TableName', sql.NVarChar(120), order.TableName)
+      .input('BranchId', sql.NVarChar(64), order.BranchId || null)
+      .input('PrintBatchNo', sql.Int, printBatchNo)
+      .input('PrintMode', sql.NVarChar(30), printMode)
+      .input('ItemCount', sql.Int, pending.length)
+      .input('TotalQuantity', sql.Decimal(18, 2), totalQuantity)
+      .input('TotalAmount', sql.Decimal(18, 2), totalAmount)
+      .input('RiskNote', sql.NVarChar(sql.MAX), riskNote)
+      .input('PrintedBy', sql.NVarChar(200), req.user?.email || (req.user as any)?.username || req.user?.id || null)
+      .query(`
+INSERT INTO dbo.ComPosKitchenPrintLogs
+  (Id, OrderId, OrderNo, TableId, TableName, BranchId, PrintBatchNo, PrintMode, ItemCount, TotalQuantity, TotalAmount, RiskNote, PrintedBy)
+VALUES
+  (@Id, @OrderId, @OrderNo, @TableId, @TableName, @BranchId, @PrintBatchNo, @PrintMode, @ItemCount, @TotalQuantity, @TotalAmount, @RiskNote, @PrintedBy);
+`);
+
+    for (const item of pending) {
+      await pool
+        .request()
+        .input('Id', sql.NVarChar(64), newId())
+        .input('LogId', sql.NVarChar(64), logId)
+        .input('OrderItemId', sql.NVarChar(64), item.Id)
+        .input('MenuItemId', sql.NVarChar(64), item.MenuItemId || null)
+        .input('Code', sql.NVarChar(80), item.Code || null)
+        .input('Name', sql.NVarChar(220), item.Name)
+        .input('UnitPrice', sql.Decimal(18, 2), toNumber(item.UnitPrice))
+        .input('SnapshotQuantity', sql.Decimal(18, 2), toNumber(item.Quantity))
+        .input('PreviousSentQuantity', sql.Decimal(18, 2), toNumber(item.SentQuantity))
+        .input('DeltaQuantity', sql.Decimal(18, 2), toNumber(item.DeltaQuantity || item.Quantity))
+        .input('Note', sql.NVarChar(sql.MAX), item.Note || null)
+        .input('PreviousStatus', sql.NVarChar(30), item.Status || null)
+        .input('ActionType', sql.NVarChar(30), item.ActionType || 'SEND')
+        .query(`
+INSERT INTO dbo.ComPosKitchenPrintLogItems
+  (Id, LogId, OrderItemId, MenuItemId, Code, Name, UnitPrice, SnapshotQuantity, PreviousSentQuantity, DeltaQuantity, Note, PreviousStatus, ActionType)
+VALUES
+  (@Id, @LogId, @OrderItemId, @MenuItemId, @Code, @Name, @UnitPrice, @SnapshotQuantity, @PreviousSentQuantity, @DeltaQuantity, @Note, @PreviousStatus, @ActionType);
+`);
+    }
+
     await pool
       .request()
       .input('Id', sql.NVarChar(64), req.params.id)
-      .query(`UPDATE dbo.ComPosOrders SET Status='ORDERED', KitchenPrintedAt=SYSDATETIME(), UpdatedAt=SYSDATETIME() WHERE Id=@Id;
-        UPDATE dbo.ComPosOrderItems SET Status='SENT', UpdatedAt=SYSDATETIME() WHERE OrderId=@Id;`);
-    res.json({ success: true, data: await getOrderById(req.params.id) });
+      .query(`
+UPDATE dbo.ComPosOrders
+SET Status='ORDERED',
+    KitchenPrintedAt=SYSDATETIME(),
+    KitchenPrintCount=ISNULL(KitchenPrintCount, 0) + 1,
+    UpdatedAt=SYSDATETIME()
+WHERE Id=@Id;
+
+UPDATE dbo.ComPosOrderItems
+SET Status='SENT',
+    SentQuantity=Quantity,
+    LastKitchenPrintedAt=SYSDATETIME(),
+    RevenueRiskFlag=0,
+    RevenueRiskNote=NULL,
+    UpdatedAt=SYSDATETIME()
+WHERE OrderId=@Id
+  AND (Quantity > 0 OR ISNULL(SentQuantity, 0) > 0)
+  AND (Status IN ('NEW','CHANGED') OR ISNULL(SentQuantity, 0) <> ISNULL(Quantity, 0));
+`);
+    res.json({ success: true, data: await getOrderById(req.params.id), printLog: { id: logId, printBatchNo, printMode, itemCount: pending.length } });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message || 'Không xác nhận được bếp.' });
   }
@@ -1359,12 +1553,42 @@ export const payPosOrder = async (req: AuthenticatedRequest, res: Response) => {
       return;
     }
     await recalculateOrder(req.params.id);
+    const paymentMethod = String(req.body.paymentMethod || '').toUpperCase();
+    const allowedPaymentMethods = new Set(['CASH', 'BANK_TRANSFER', 'MEMBER']);
+    if (!allowedPaymentMethods.has(paymentMethod)) {
+      res.status(400).json({
+        success: false,
+        message: 'Vui long chon phuong thuc thanh toan: tien mat hoac chuyen khoan.',
+        code: 'PAYMENT_METHOD_REQUIRED',
+      });
+      return;
+    }
+    const pendingKitchen = (await pool
+      .request()
+      .input('Id', sql.NVarChar(64), req.params.id)
+      .query(`
+SELECT COUNT(1) AS PendingCount
+FROM dbo.ComPosOrderItems
+WHERE OrderId=@Id
+  AND (Quantity > 0 OR ISNULL(SentQuantity, 0) > 0)
+  AND (Status IN ('NEW','CHANGED') OR ISNULL(SentQuantity, 0) <> ISNULL(Quantity, 0));
+`)).recordset[0]?.PendingCount || 0;
+    if (Number(pendingKitchen) > 0) {
+      res.status(409).json({
+        success: false,
+        message: 'Don con mon phat sinh/chinh sua chua xac nhan bep. Vui long xac nhan de luu lich su truoc khi hoan tat thanh toan.',
+        code: 'KITCHEN_CONFIRM_REQUIRED',
+        pendingKitchen,
+      });
+      return;
+    }
     await withSqlRetry(() => pool
       .request()
       .input('Id', sql.NVarChar(64), req.params.id)
       .input('TableId', sql.NVarChar(64), order.TableId)
-      .input('PaymentMethod', sql.NVarChar(40), req.body.paymentMethod || 'CASH')
-      .query(`UPDATE dbo.ComPosOrders SET Status='PAID', PaymentMethod=@PaymentMethod, PaidAt=SYSDATETIME(), UpdatedAt=SYSDATETIME() WHERE Id=@Id;
+      .input('PaymentMethod', sql.NVarChar(40), paymentMethod)
+      .input('PaymentConfirmedBy', sql.NVarChar(200), req.user?.email || (req.user as any)?.username || req.user?.id || null)
+      .query(`UPDATE dbo.ComPosOrders SET Status='PAID', PaymentMethod=@PaymentMethod, PaymentConfirmedBy=@PaymentConfirmedBy, PaidAt=SYSDATETIME(), UpdatedAt=SYSDATETIME() WHERE Id=@Id;
         UPDATE dbo.ComPosTables SET Status='AVAILABLE', UpdatedAt=SYSDATETIME() WHERE Id=@TableId;`));
     let stockWarning: string | null = null;
     try {
@@ -1586,6 +1810,42 @@ SELECT
     });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message || 'Khong lay duoc thong tin in POS.' });
+  }
+};
+
+export const getPosKitchenPrintLogs = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    const date = String(req.query.date || new Date().toISOString().slice(0, 10));
+    const result = await withSqlRetry(() => pool
+      .request()
+      .input('Date', sql.NVarChar(10), date)
+      .query(`
+DECLARE @WorkDate DATE = TRY_CONVERT(DATE, @Date, 23);
+
+SELECT
+  l.*,
+  (
+    SELECT i.Id, i.OrderItemId, i.MenuItemId, i.Code, i.Name, i.UnitPrice, i.SnapshotQuantity,
+           i.PreviousSentQuantity, i.DeltaQuantity, i.Note, i.PreviousStatus, i.ActionType
+    FROM dbo.ComPosKitchenPrintLogItems i WITH (READPAST)
+    WHERE i.LogId = l.Id
+    ORDER BY i.Name
+    FOR JSON PATH
+  ) AS ItemsJson
+FROM dbo.ComPosKitchenPrintLogs l WITH (READPAST)
+WHERE CAST(l.PrintedAt AS DATE)=@WorkDate
+ORDER BY l.PrintedAt DESC;
+`));
+    const data = result.recordset.map((item: any) => ({
+      ...item,
+      items: item.ItemsJson ? JSON.parse(item.ItemsJson) : [],
+      ItemsJson: undefined,
+    }));
+    res.json({ success: true, data });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Khong tai duoc lich su in bep.' });
   }
 };
 
