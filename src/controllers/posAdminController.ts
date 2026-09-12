@@ -1937,38 +1937,50 @@ export const getPosDashboard = async (req: AuthenticatedRequest, res: Response) 
     await ensurePosSchema();
     const pool = await getCaoPool();
     const date = String(req.query.date || new Date().toISOString().slice(0, 10));
-    const summary = await withSqlRetry(() => pool.request().input('Date', sql.NVarChar(10), date).query(`
+    const period = String(req.query.period || 'day').toLowerCase() === 'month' ? 'month' : 'day';
+    const summary = await withSqlRetry(() => pool.request()
+      .input('Date', sql.NVarChar(10), date)
+      .input('Period', sql.NVarChar(10), period)
+      .query(`
 DECLARE @WorkDate DATE = TRY_CONVERT(DATE, @Date, 23);
-DECLARE @PrevDate DATE = DATEADD(DAY, -1, @WorkDate);
+IF @WorkDate IS NULL SET @WorkDate = CAST(SYSDATETIME() AS DATE);
+DECLARE @IsMonth BIT = CASE WHEN @Period = 'month' THEN 1 ELSE 0 END;
+DECLARE @StartDate DATE = CASE WHEN @IsMonth = 1 THEN DATEFROMPARTS(YEAR(@WorkDate), MONTH(@WorkDate), 1) ELSE @WorkDate END;
+DECLARE @EndDate DATE = CASE WHEN @IsMonth = 1 THEN DATEADD(MONTH, 1, @StartDate) ELSE DATEADD(DAY, 1, @StartDate) END;
+DECLARE @PrevStartDate DATE = CASE WHEN @IsMonth = 1 THEN DATEADD(MONTH, -1, @StartDate) ELSE DATEADD(DAY, -1, @StartDate) END;
+DECLARE @PrevEndDate DATE = @StartDate;
 DECLARE @AllOrders TABLE (
   SourceTable NVARCHAR(30) NOT NULL,
   Id NVARCHAR(64) NOT NULL,
   OrderNo NVARCHAR(80) NULL,
   Status NVARCHAR(30) NULL,
+  PaymentMethod NVARCHAR(40) NULL,
   TotalAmount DECIMAL(18,2) NOT NULL,
   DiscountAmount DECIMAL(18,2) NOT NULL,
   CreatedAt DATETIME2 NULL,
   PaidAt DATETIME2 NULL
 );
 
-INSERT INTO @AllOrders (SourceTable, Id, OrderNo, Status, TotalAmount, DiscountAmount, CreatedAt, PaidAt)
+INSERT INTO @AllOrders (SourceTable, Id, OrderNo, Status, PaymentMethod, TotalAmount, DiscountAmount, CreatedAt, PaidAt)
 SELECT
   'ComPosOrders',
   Id,
   OrderNo,
   UPPER(Status),
+  UPPER(ISNULL(PaymentMethod, '')),
   ISNULL(TotalAmount, 0),
   ISNULL(DiscountAmount, 0),
   CreatedAt,
   PaidAt
 FROM dbo.ComPosOrders WITH (READPAST);
 
-INSERT INTO @AllOrders (SourceTable, Id, OrderNo, Status, TotalAmount, DiscountAmount, CreatedAt, PaidAt)
+INSERT INTO @AllOrders (SourceTable, Id, OrderNo, Status, PaymentMethod, TotalAmount, DiscountAmount, CreatedAt, PaidAt)
 SELECT
   'PosOrders',
   CONVERT(NVARCHAR(64), Guid),
   OrderNo,
   UPPER(Status),
+  NULL,
   ISNULL(TotalAmount, 0),
   ISNULL(DiscountAmount, 0),
   CreateDate,
@@ -1976,22 +1988,35 @@ SELECT
 FROM dbo.PosOrders WITH (READPAST);
 
 SELECT
-  ISNULL(SUM(CASE WHEN Status='PAID' AND CAST(PaidAt AS DATE)=@WorkDate THEN TotalAmount ELSE 0 END), 0) AS Revenue,
-  COUNT(CASE WHEN Status='PAID' AND CAST(PaidAt AS DATE)=@WorkDate THEN 1 END) AS PaidOrders,
-  COUNT(CASE WHEN Status NOT IN ('PAID','CANCELLED') AND CAST(CreatedAt AS DATE)=@WorkDate THEN 1 END) AS OpenOrders,
-  ISNULL(AVG(CASE WHEN Status='PAID' AND CAST(PaidAt AS DATE)=@WorkDate THEN TotalAmount END), 0) AS AverageBill,
-  ISNULL(SUM(CASE WHEN Status='PAID' AND CAST(PaidAt AS DATE)=@WorkDate THEN DiscountAmount ELSE 0 END), 0) AS DiscountAmount,
-  ISNULL((SELECT SUM(CASE WHEN p.Status='PAID' THEN p.TotalAmount ELSE 0 END) FROM @AllOrders p WHERE CAST(p.PaidAt AS DATE)=@PrevDate), 0) AS PreviousRevenue,
-  (SELECT COUNT(CASE WHEN p.Status='PAID' THEN 1 END) FROM @AllOrders p WHERE CAST(p.PaidAt AS DATE)=@PrevDate) AS PreviousPaidOrders
+  ISNULL(SUM(CASE WHEN Status='PAID' AND PaidAt >= @StartDate AND PaidAt < @EndDate THEN TotalAmount ELSE 0 END), 0) AS Revenue,
+  COUNT(CASE WHEN Status='PAID' AND PaidAt >= @StartDate AND PaidAt < @EndDate THEN 1 END) AS PaidOrders,
+  COUNT(CASE WHEN Status NOT IN ('PAID','CANCELLED') AND CreatedAt >= @StartDate AND CreatedAt < @EndDate THEN 1 END) AS OpenOrders,
+  ISNULL(AVG(CASE WHEN Status='PAID' AND PaidAt >= @StartDate AND PaidAt < @EndDate THEN TotalAmount END), 0) AS AverageBill,
+  ISNULL(SUM(CASE WHEN Status='PAID' AND PaidAt >= @StartDate AND PaidAt < @EndDate THEN DiscountAmount ELSE 0 END), 0) AS DiscountAmount,
+  ISNULL(SUM(CASE WHEN Status='PAID' AND PaidAt >= @StartDate AND PaidAt < @EndDate AND PaymentMethod='CASH' THEN TotalAmount ELSE 0 END), 0) AS CashAmount,
+  ISNULL(SUM(CASE WHEN Status='PAID' AND PaidAt >= @StartDate AND PaidAt < @EndDate AND PaymentMethod='BANK_TRANSFER' THEN TotalAmount ELSE 0 END), 0) AS BankTransferAmount,
+  ISNULL(SUM(CASE WHEN Status='PAID' AND PaidAt >= @StartDate AND PaidAt < @EndDate AND PaymentMethod='MEMBER' THEN TotalAmount ELSE 0 END), 0) AS MemberAmount,
+  ISNULL(SUM(CASE WHEN Status='PAID' AND PaidAt >= @StartDate AND PaidAt < @EndDate AND ISNULL(PaymentMethod, '') NOT IN ('CASH','BANK_TRANSFER','MEMBER') THEN TotalAmount ELSE 0 END), 0) AS UnknownPaymentAmount,
+  ISNULL((SELECT SUM(CASE WHEN p.Status='PAID' THEN p.TotalAmount ELSE 0 END) FROM @AllOrders p WHERE p.PaidAt >= @PrevStartDate AND p.PaidAt < @PrevEndDate), 0) AS PreviousRevenue,
+  (SELECT COUNT(CASE WHEN p.Status='PAID' THEN 1 END) FROM @AllOrders p WHERE p.PaidAt >= @PrevStartDate AND p.PaidAt < @PrevEndDate) AS PreviousPaidOrders
 FROM @AllOrders
-WHERE CAST(CreatedAt AS DATE)=@WorkDate OR CAST(PaidAt AS DATE)=@WorkDate;
+WHERE (CreatedAt >= @StartDate AND CreatedAt < @EndDate) OR (PaidAt >= @StartDate AND PaidAt < @EndDate);
+
+SELECT
+  ISNULL(NULLIF(PaymentMethod, ''), 'UNKNOWN') AS PaymentMethod,
+  COUNT(1) AS Orders,
+  ISNULL(SUM(TotalAmount), 0) AS Amount
+FROM @AllOrders
+WHERE Status='PAID' AND PaidAt >= @StartDate AND PaidAt < @EndDate
+GROUP BY ISNULL(NULLIF(PaymentMethod, ''), 'UNKNOWN')
+ORDER BY Amount DESC;
 
 SELECT TOP 12 Name, SUM(Quantity) AS Quantity, SUM(Amount) AS Amount
 FROM (
   SELECT i.Name, SUM(i.Quantity) AS Quantity, SUM(i.UnitPrice * i.Quantity) AS Amount
   FROM dbo.ComPosOrderItems i WITH (READPAST)
   JOIN dbo.ComPosOrders o WITH (READPAST) ON o.Id = i.OrderId
-  WHERE UPPER(o.Status)='PAID' AND CAST(o.PaidAt AS DATE)=@WorkDate
+  WHERE UPPER(o.Status)='PAID' AND o.PaidAt >= @StartDate AND o.PaidAt < @EndDate
   GROUP BY i.Name
 
   UNION ALL
@@ -1999,7 +2024,7 @@ FROM (
   SELECT i.ItemName AS Name, SUM(i.Quantity) AS Quantity, SUM(i.LineTotal) AS Amount
   FROM dbo.PosOrderItems i WITH (READPAST)
   JOIN dbo.PosOrders o WITH (READPAST) ON o.Guid = i.OrderGuid
-  WHERE UPPER(o.Status)='PAID' AND CAST(o.PaidAt AS DATE)=@WorkDate
+  WHERE UPPER(o.Status)='PAID' AND o.PaidAt >= @StartDate AND o.PaidAt < @EndDate
   GROUP BY i.ItemName
 ) items
 GROUP BY Name
@@ -2007,14 +2032,14 @@ ORDER BY Amount DESC;
 
 SELECT DATEPART(HOUR, PaidAt) AS Hour, SUM(TotalAmount) AS Revenue, COUNT(1) AS Orders
 FROM @AllOrders
-WHERE Status='PAID' AND CAST(PaidAt AS DATE)=@WorkDate
+WHERE Status='PAID' AND PaidAt >= @StartDate AND PaidAt < @EndDate
 GROUP BY DATEPART(HOUR, PaidAt) ORDER BY Hour;
 
 SELECT Status, COUNT(1) AS CountOrder, SUM(TotalAmount) AS Amount
 FROM @AllOrders
 WHERE
-  (Status='PAID' AND CAST(PaidAt AS DATE)=@WorkDate)
-  OR (Status<>'PAID' AND CAST(CreatedAt AS DATE)=@WorkDate)
+  (Status='PAID' AND PaidAt >= @StartDate AND PaidAt < @EndDate)
+  OR (Status<>'PAID' AND CreatedAt >= @StartDate AND CreatedAt < @EndDate)
 GROUP BY Status;
 `));
     const recordsets = summary.recordsets as sql.IRecordSet<any>[];
@@ -2023,9 +2048,11 @@ GROUP BY Status;
       success: true,
       data: {
         summary: recordsets[0]?.[0] || {},
-        topItems: recordsets[1] || [],
-        hourly: recordsets[2] || [],
-        statusBreakdown: recordsets[3] || [],
+        paymentBreakdown: recordsets[1] || [],
+        topItems: recordsets[2] || [],
+        hourly: recordsets[3] || [],
+        statusBreakdown: recordsets[4] || [],
+        period,
       },
     });
   } catch (error: any) {
