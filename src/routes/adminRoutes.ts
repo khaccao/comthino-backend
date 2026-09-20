@@ -87,6 +87,7 @@ import {
   getPosRunnerOrders,
   openPosOrder,
   payPosOrder,
+  transferPosOrderTable,
   updatePosPaymentSetting,
   updatePosOrder,
   updatePosOrderItem,
@@ -316,6 +317,7 @@ router.get('/pos/kitchen-print-logs', requirePermission('ORDER_POS', 'VIEW'), ge
 router.get('/pos/orders/:id/print-context', requirePermission('ORDER_POS', 'VIEW'), getPosPrintContext);
 router.get('/pos/orders/:id', requirePermission('ORDER_POS', 'VIEW'), getPosOrderDetail);
 router.put('/pos/orders/:id', requirePermission('ORDER_POS', 'EDIT'), updatePosOrder);
+router.post('/pos/orders/:id/transfer-table', requirePermission('ORDER_POS', 'EDIT'), transferPosOrderTable);
 router.post('/pos/orders/:id/items', requirePermission('ORDER_POS', 'CREATE'), addPosOrderItem);
 router.put('/pos/orders/:id/items/:itemId', requirePermission('ORDER_POS', 'EDIT'), updatePosOrderItem);
 router.delete('/pos/orders/:id/items/:itemId', requirePermission('ORDER_POS', 'DELETE'), deletePosOrderItem);

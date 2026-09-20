@@ -235,6 +235,24 @@ BEGIN
   );
 END;
 
+IF OBJECT_ID(N'dbo.ComPosTableTransferLogs', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.ComPosTableTransferLogs (
+    Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+    OrderId NVARCHAR(64) NOT NULL,
+    OrderNo NVARCHAR(60) NOT NULL,
+    FromTableId NVARCHAR(64) NOT NULL,
+    FromTableName NVARCHAR(120) NOT NULL,
+    ToTableId NVARCHAR(64) NOT NULL,
+    ToTableName NVARCHAR(120) NOT NULL,
+    Reason NVARCHAR(500) NULL,
+    TransferredBy NVARCHAR(200) NULL,
+    TransferredAt DATETIME2 NOT NULL CONSTRAINT DF_ComPosTableTransferLogs_TransferredAt DEFAULT SYSDATETIME()
+  );
+  CREATE INDEX IX_ComPosTableTransferLogs_Order ON dbo.ComPosTableTransferLogs(OrderId, TransferredAt);
+  CREATE INDEX IX_ComPosTableTransferLogs_Date ON dbo.ComPosTableTransferLogs(TransferredAt);
+END;
+
 IF OBJECT_ID(N'dbo.ComPosKitchenPrintLogs', N'U') IS NULL
 BEGIN
   CREATE TABLE dbo.ComPosKitchenPrintLogs (
@@ -873,7 +891,16 @@ const getOrderById = async (orderId: string) => {
     .request()
     .input('OrderId', sql.NVarChar(64), orderId)
     .query('SELECT * FROM dbo.ComPosOrderItems WHERE OrderId = @OrderId ORDER BY CreatedAt ASC');
-  return { ...order, items: items.recordset };
+  const transferLogs = await pool
+    .request()
+    .input('OrderId', sql.NVarChar(64), orderId)
+    .query(`
+SELECT TOP 50 *
+FROM dbo.ComPosTableTransferLogs
+WHERE OrderId=@OrderId
+ORDER BY TransferredAt DESC;
+`);
+  return { ...order, items: items.recordset, transferLogs: transferLogs.recordset };
 };
 
 const getSourcePosOrderById = async (orderId: string) => {
@@ -1491,6 +1518,114 @@ export const updatePosOrder = async (req: AuthenticatedRequest, res: Response) =
     res.json({ success: true, data: await getOrderById(req.params.id) });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message || 'Không cập nhật được order.' });
+  }
+};
+
+export const transferPosOrderTable = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensurePosSchema();
+    const pool = await getCaoPool();
+    const orderId = String(req.params.id || '').trim();
+    const targetTableId = String(req.body.targetTableId || req.body.toTableId || '').trim();
+    const reason = String(req.body.reason || '').trim();
+    const transferredBy = req.user?.email || (req.user as any)?.username || req.user?.id || null;
+
+    if (!orderId || !targetTableId) {
+      res.status(400).json({ success: false, message: 'Vui lòng chọn bàn cần chuyển.' });
+      return;
+    }
+
+    await withSqlRetry(() =>
+      pool
+        .request()
+        .input('Id', sql.NVarChar(64), orderId)
+        .input('TargetTableId', sql.NVarChar(64), targetTableId)
+        .input('LogId', sql.NVarChar(64), newId())
+        .input('Reason', sql.NVarChar(500), reason || null)
+        .input('TransferredBy', sql.NVarChar(200), transferredBy)
+        .query(`
+SET XACT_ABORT ON;
+BEGIN TRAN;
+
+DECLARE @OrderNo NVARCHAR(60), @FromTableId NVARCHAR(64), @FromTableName NVARCHAR(120), @ToTableName NVARCHAR(120);
+
+SELECT
+  @OrderNo = OrderNo,
+  @FromTableId = TableId,
+  @FromTableName = TableName
+FROM dbo.ComPosOrders WITH (UPDLOCK, HOLDLOCK)
+WHERE Id=@Id AND Status IN ('OPEN','ORDERED');
+
+IF @OrderNo IS NULL
+BEGIN
+  ROLLBACK TRAN;
+  THROW 51020, 'Khong tim thay order dang mo de chuyen ban.', 1;
+END;
+
+IF @FromTableId = @TargetTableId
+BEGIN
+  ROLLBACK TRAN;
+  THROW 51021, 'Ban dich dang la ban hien tai.', 1;
+END;
+
+SELECT @ToTableName = Name
+FROM dbo.ComPosTables WITH (UPDLOCK, HOLDLOCK)
+WHERE Id=@TargetTableId AND IsActive=1;
+
+IF @ToTableName IS NULL
+BEGIN
+  ROLLBACK TRAN;
+  THROW 51022, 'Khong tim thay ban dich hoac ban dang tat.', 1;
+END;
+
+IF EXISTS (
+  SELECT 1
+  FROM dbo.ComPosOrders o WITH (UPDLOCK, HOLDLOCK)
+  WHERE o.TableId=@TargetTableId
+    AND o.Id<>@Id
+    AND o.Status IN ('OPEN','ORDERED')
+    AND (o.Status='ORDERED' OR EXISTS (SELECT 1 FROM dbo.ComPosOrderItems i WHERE i.OrderId=o.Id))
+)
+BEGIN
+  ROLLBACK TRAN;
+  THROW 51023, 'Ban dich dang co order, khong the chuyen.', 1;
+END;
+
+INSERT INTO dbo.ComPosTableTransferLogs
+  (Id, OrderId, OrderNo, FromTableId, FromTableName, ToTableId, ToTableName, Reason, TransferredBy)
+VALUES
+  (@LogId, @Id, @OrderNo, @FromTableId, @FromTableName, @TargetTableId, @ToTableName, @Reason, @TransferredBy);
+
+UPDATE dbo.ComPosOrders
+SET TableId=@TargetTableId,
+    TableName=@ToTableName,
+    UpdatedAt=SYSDATETIME()
+WHERE Id=@Id;
+
+UPDATE t
+SET Status = CASE
+  WHEN EXISTS (
+    SELECT 1
+    FROM dbo.ComPosOrders o
+    WHERE o.TableId=t.Id
+      AND o.Status IN ('OPEN','ORDERED')
+      AND (o.Status='ORDERED' OR EXISTS (SELECT 1 FROM dbo.ComPosOrderItems i WHERE i.OrderId=o.Id))
+  ) THEN 'OCCUPIED'
+  ELSE 'AVAILABLE'
+END,
+UpdatedAt=SYSDATETIME()
+FROM dbo.ComPosTables t
+WHERE t.Id IN (@FromTableId, @TargetTableId);
+
+COMMIT TRAN;
+`),
+    );
+
+    res.json({ success: true, data: await getOrderById(orderId) });
+  } catch (error: any) {
+    const message = error.message || 'Không chuyển được bàn.';
+    const status = /dang co order|khong the chuyen/i.test(message) ? 409 : 500;
+    res.status(status).json({ success: false, message });
   }
 };
 
