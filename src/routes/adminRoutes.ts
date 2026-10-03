@@ -140,6 +140,14 @@ import {
   updateFaceRecognitionConfig,
 } from '../controllers/faceRecognitionConfigController';
 import {
+  createShiftAssignment,
+  decideAttendanceApproval,
+  deleteAttendanceRule,
+  getHrmBootstrap,
+  updateShiftAssignmentStatus,
+  upsertAttendanceRule,
+} from '../controllers/hrmController';
+import {
   getCaoRestaurantCatalog,
   previewCaoRestaurantTable,
 } from '../controllers/caoRestaurantDataController';
@@ -285,6 +293,15 @@ router.post('/face-attendance/recognize', requirePermission('FACE_ATTENDANCE', '
 router.get('/face-recognition/config', requirePermission('FACE_ATTENDANCE', 'VIEW'), getFaceRecognitionConfig);
 router.put('/face-recognition/config', requirePermission('FACE_ATTENDANCE', 'EDIT'), updateFaceRecognitionConfig);
 router.post('/face-recognition/health', requirePermission('FACE_ATTENDANCE', 'VIEW'), healthCheckFaceRecognition);
+
+// HRM operations: weekly scheduling, attendance rules and approval workflow
+router.get('/hrm/bootstrap', requirePermission('PAYROLL', 'VIEW'), requirePayrollOtp, getHrmBootstrap);
+router.post('/hrm/shift-assignments', requirePermission('PAYROLL', 'CREATE'), createShiftAssignment);
+router.patch('/hrm/shift-assignments/:id/status', requirePermission('PAYROLL', 'APPROVE'), updateShiftAssignmentStatus);
+router.post('/hrm/attendance-rules', requirePermission('PAYROLL', 'CREATE'), upsertAttendanceRule);
+router.put('/hrm/attendance-rules/:id', requirePermission('PAYROLL', 'EDIT'), upsertAttendanceRule);
+router.delete('/hrm/attendance-rules/:id', requirePermission('PAYROLL', 'DELETE'), deleteAttendanceRule);
+router.patch('/hrm/attendance-approvals/:id', requirePermission('PAYROLL', 'APPROVE'), decideAttendanceApproval);
 
 // CAO_BNHHotelManagement restaurant data catalog
 router.get('/cao-restaurant/catalog', requirePermission('CAO_RESTAURANT_DATA', 'VIEW'), getCaoRestaurantCatalog);
