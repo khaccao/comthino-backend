@@ -26,22 +26,25 @@ const maskSecret = (value?: string | null) => {
 const serializeSetting = (setting: any) => {
   const envUrl = process.env.FACE_RECOGNITION_API_URL || '';
   const envKey = process.env.FACE_RECOGNITION_API_KEY || '';
+  const hasDatabaseUrl = Boolean(setting?.isActive && setting?.apiUrl);
+  const usingLocalFallback = !envUrl && !hasDatabaseUrl;
   return {
-    provider: setting?.provider || process.env.FACE_RECOGNITION_PROVIDER || 'EXTERNAL',
+    provider: usingLocalFallback ? 'LOCAL' : setting?.provider || process.env.FACE_RECOGNITION_PROVIDER || 'EXTERNAL',
     apiUrl: setting?.apiUrl || '',
     hasApiKey: Boolean(setting?.apiKey),
     apiKeyMasked: maskSecret(setting?.apiKey),
-    threshold: Number(setting?.threshold ?? faceThreshold()),
+    threshold: Number(setting?.threshold ?? (usingLocalFallback ? 0.58 : faceThreshold())),
     duplicateWindowSeconds: Number(setting?.duplicateWindowSeconds ?? duplicateAttendanceWindowSeconds()),
     isActive: setting?.isActive ?? true,
-    lastHealthStatus: setting?.lastHealthStatus || null,
-    lastHealthMessage: setting?.lastHealthMessage || null,
+    lastHealthStatus: usingLocalFallback ? 'LOCAL' : setting?.lastHealthStatus || null,
+    lastHealthMessage: usingLocalFallback ? 'Đang dùng local face engine trong backend. Có thể đăng ký/chấm công ngay, sau này cấu hình API ngoài để nhận diện chính xác hơn.' : setting?.lastHealthMessage || null,
     lastHealthCheckedAt: setting?.lastHealthCheckedAt || null,
     runtime: {
-      source: envUrl ? 'ENV' : 'DATABASE',
+      source: envUrl ? 'ENV' : hasDatabaseUrl ? 'DATABASE' : 'LOCAL',
       envConfigured: Boolean(envUrl),
       envApiUrl: envUrl ? `${envUrl.replace(/\/+$/, '')}` : null,
       envHasApiKey: Boolean(envKey),
+      localFallback: usingLocalFallback,
     },
   };
 };
