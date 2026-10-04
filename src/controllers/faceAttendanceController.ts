@@ -19,7 +19,7 @@ const faceImageSchema = z.object({
 });
 
 const registerSchema = z.object({
-  employeeId: z.string().min(1),
+  employeeId: z.string().min(1).optional().nullable(),
   images: z.array(faceImageSchema).length(3),
 });
 
@@ -144,23 +144,86 @@ const ensureAttendanceApprovals = async (tx: any, attendanceId: string, employee
   }
 };
 
-export const getFaceRegistrationBootstrap = async (_req: AuthenticatedRequest, res: Response) => {
+const canRegisterFaceForOthers = (user?: AuthenticatedRequest['user']) => Boolean(
+  user?.isSystemAdmin ||
+  user?.role === 'SUPERADMIN' ||
+  user?.role === 'ADMIN' ||
+  user?.roles?.includes('SUPERADMIN') ||
+  user?.roles?.includes('ADMIN'),
+);
+
+const faceEmployeeInclude = {
+  branch: true,
+  defaultShift: true,
+  faceRegistrations: {
+    where: { isActive: true },
+    include: { images: true },
+    orderBy: { registeredAt: 'desc' as const },
+    take: 1,
+  },
+};
+
+const findCurrentLinkedEmployee = (userId?: string) => {
+  if (!userId) return null;
+  return prisma.payrollEmployee.findFirst({
+    where: { linkedUserId: userId, isActive: true },
+    include: faceEmployeeInclude,
+  });
+};
+
+const resolveFaceRegistrationEmployee = async (req: AuthenticatedRequest, requestedEmployeeId?: string | null) => {
+  const canManage = canRegisterFaceForOthers(req.user);
+  const currentEmployee = await findCurrentLinkedEmployee(req.user?.id);
+
+  if (!requestedEmployeeId) {
+    if (currentEmployee) return currentEmployee;
+    const error: any = new Error(canManage ? 'Vui lòng chọn nhân viên cần đăng ký khuôn mặt.' : 'Tài khoản đăng nhập chưa được gán với hồ sơ nhân viên.');
+    error.statusCode = canManage ? 400 : 403;
+    error.code = canManage ? 'EMPLOYEE_REQUIRED' : 'EMPLOYEE_ACCOUNT_NOT_LINKED';
+    throw error;
+  }
+
+  if (!canManage && currentEmployee?.id !== requestedEmployeeId) {
+    const error: any = new Error('Bạn chỉ được đăng ký khuôn mặt cho tài khoản nhân viên của mình.');
+    error.statusCode = 403;
+    error.code = 'FACE_REGISTER_SELF_ONLY';
+    throw error;
+  }
+
+  const employee = await prisma.payrollEmployee.findUnique({
+    where: { id: requestedEmployeeId },
+    include: faceEmployeeInclude,
+  });
+  if (!employee || !employee.isActive) {
+    const error: any = new Error('Nhân viên không tồn tại hoặc đã nghỉ.');
+    error.statusCode = 404;
+    error.code = 'EMPLOYEE_NOT_ACTIVE';
+    throw error;
+  }
+  return employee;
+};
+
+export const getFaceRegistrationBootstrap = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const employees = await prisma.payrollEmployee.findMany({
-      where: { isActive: true },
-      include: {
-        branch: true,
-        defaultShift: true,
-        faceRegistrations: {
-          where: { isActive: true },
-          include: { images: true },
-          orderBy: { registeredAt: 'desc' },
-          take: 1,
-        },
+    const canManage = canRegisterFaceForOthers(req.user);
+    const currentEmployee = await findCurrentLinkedEmployee(req.user?.id);
+    const employees = canManage
+      ? await prisma.payrollEmployee.findMany({
+        where: { isActive: true },
+        include: faceEmployeeInclude,
+        orderBy: [{ fullName: 'asc' }],
+      })
+      : currentEmployee ? [currentEmployee] : [];
+    res.json({
+      success: true,
+      data: {
+        employees: employees.map(serializeEmployee),
+        currentEmployee: currentEmployee ? serializeEmployee(currentEmployee) : null,
+        canRegisterOthers: canManage,
+        poses: poseValues,
+        threshold: faceThreshold(),
       },
-      orderBy: [{ fullName: 'asc' }],
     });
-    res.json({ success: true, data: { employees: employees.map(serializeEmployee), poses: poseValues, threshold: faceThreshold() } });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message || 'Không tải được danh sách đăng ký khuôn mặt.' });
   }
@@ -174,11 +237,7 @@ export const registerEmployeeFace = async (req: AuthenticatedRequest, res: Respo
       res.status(400).json({ success: false, code: 'MISSING_FACE_POSE', message: 'Cần đủ 3 ảnh: chính diện, trái, phải.' });
       return;
     }
-    const employee = await prisma.payrollEmployee.findUnique({ where: { id: data.employeeId } });
-    if (!employee || !employee.isActive) {
-      res.status(404).json({ success: false, code: 'EMPLOYEE_NOT_ACTIVE', message: 'Nhân viên không tồn tại hoặc đã nghỉ.' });
-      return;
-    }
+    const employee = await resolveFaceRegistrationEmployee(req, data.employeeId);
     const analyzed: Array<{ pose: typeof poseValues[number]; imageUrl: string; imageKitFileId?: string | null; analysis: Awaited<ReturnType<typeof analyzeFaceImage>> }> = [];
     for (const image of data.images) {
       const analysis = await analyzeFaceImage(image.imageUrl);
@@ -220,7 +279,7 @@ export const registerEmployeeFace = async (req: AuthenticatedRequest, res: Respo
     });
     res.status(201).json({ success: true, data: registration });
   } catch (error: any) {
-    const status = error.code === 'FACE_RECOGNITION_NOT_CONFIGURED' ? 503 : 400;
+    const status = error.statusCode || (error.code === 'FACE_RECOGNITION_NOT_CONFIGURED' ? 503 : 400);
     res.status(status).json({ success: false, code: error.code || 'FACE_REGISTER_FAILED', message: error.message || 'Không đăng ký được khuôn mặt.' });
   }
 };

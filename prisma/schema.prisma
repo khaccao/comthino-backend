@@ -995,6 +995,7 @@ model PayrollEmployee {
   faceImages        EmployeeFaceImage[]
   shiftAssignments  WorkShiftAssignment[]
 
+  @@index([linkedUserId])
   @@map("PayrollEmployees")
 }
 
