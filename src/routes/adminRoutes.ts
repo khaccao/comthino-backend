@@ -133,6 +133,7 @@ import {
   getFaceRegistrationBootstrap,
   recognizeFaceAttendance,
   registerEmployeeFace,
+  validateFaceRegistrationImage,
 } from '../controllers/faceAttendanceController';
 import {
   getFaceRecognitionConfig,
@@ -291,6 +292,7 @@ router.put('/customers/:id', requirePermission('CUSTOMER_MANAGEMENT', 'EDIT'), u
 
 // Face registration / face attendance
 router.get('/face-registration/bootstrap', requirePermission('FACE_REGISTRATION', 'VIEW'), requirePayrollOtp, getFaceRegistrationBootstrap);
+router.post('/face-registration/validate-image', requirePermission('FACE_REGISTRATION', 'CREATE'), validateFaceRegistrationImage);
 router.post('/face-registration', requirePermission('FACE_REGISTRATION', 'CREATE'), registerEmployeeFace);
 router.post('/face-attendance/recognize', requirePermission('FACE_ATTENDANCE', 'CREATE'), recognizeFaceAttendance);
 router.get('/face-recognition/config', requirePermission('FACE_RECOGNITION_CONFIG', 'VIEW'), getFaceRecognitionConfig);

@@ -23,6 +23,11 @@ const registerSchema = z.object({
   images: z.array(faceImageSchema).length(3),
 });
 
+const validateFaceImageSchema = z.object({
+  pose: z.enum(poseValues),
+  imageUrl: z.string().url(),
+});
+
 const recognizeSchema = z.object({
   imageUrl: z.string().url(),
   imageKitFileId: z.string().optional().nullable(),
@@ -60,6 +65,58 @@ const serializeEmployee = (item: any) => ({
   defaultShift: item.defaultShift ? { ...item.defaultShift, hourlyRate: Number(item.defaultShift.hourlyRate || 0) } : item.defaultShift,
   faceRegistrations: item.faceRegistrations || [],
 });
+
+const buildFaceImageChecks = (analysis: Awaited<ReturnType<typeof analyzeFaceImage>>) => {
+  const checks: Array<{ key: string; label: string; ok: boolean; message: string }> = [];
+  checks.push({
+    key: 'faceCount',
+    label: 'Khuôn mặt',
+    ok: analysis.faceCount === 1,
+    message: analysis.faceCount === 1
+      ? 'Phát hiện đúng 1 khuôn mặt.'
+      : analysis.faceCount > 1
+        ? 'Ảnh có nhiều hơn 1 khuôn mặt, cần chụp lại một mình.'
+        : 'Chưa thấy khuôn mặt rõ ràng trong khung.',
+  });
+
+  const brightness = Number(analysis.quality?.brightness);
+  if (Number.isFinite(brightness)) {
+    const normalized = brightness > 1 ? brightness / 255 : brightness;
+    checks.push({
+      key: 'brightness',
+      label: 'Ánh sáng',
+      ok: normalized >= 0.22 && normalized <= 0.86,
+      message: normalized < 0.22
+        ? 'Ảnh hơi tối, cần ra chỗ sáng hơn.'
+        : normalized > 0.86
+          ? 'Ảnh quá sáng/chói, cần tránh đèn chiếu thẳng.'
+          : 'Ánh sáng đạt.',
+    });
+  }
+
+  const blur = Number(analysis.quality?.blur);
+  if (Number.isFinite(blur)) {
+    checks.push({
+      key: 'blur',
+      label: 'Độ nét',
+      ok: blur <= 0.42,
+      message: blur <= 0.42 ? 'Ảnh đủ nét.' : 'Ảnh hơi mờ, giữ máy chắc và chụp lại.',
+    });
+  }
+
+  const faceSize = Number(analysis.quality?.faceSize);
+  if (Number.isFinite(faceSize)) {
+    const normalized = faceSize > 1 ? faceSize / 100 : faceSize;
+    checks.push({
+      key: 'faceSize',
+      label: 'Kích thước mặt',
+      ok: normalized >= 0.18,
+      message: normalized >= 0.18 ? 'Mặt đủ lớn trong khung.' : 'Mặt hơi nhỏ, đưa điện thoại gần hơn.',
+    });
+  }
+
+  return checks;
+};
 
 const calcAttendance = (clockIn: Date, clockOut: Date | null, breakMinutes: number, hourlyRate: number) => {
   if (!clockOut) return { totalHours: 0, grossAmount: 0 };
@@ -281,6 +338,34 @@ export const registerEmployeeFace = async (req: AuthenticatedRequest, res: Respo
   } catch (error: any) {
     const status = error.statusCode || (error.code === 'FACE_RECOGNITION_NOT_CONFIGURED' ? 503 : 400);
     res.status(status).json({ success: false, code: error.code || 'FACE_REGISTER_FAILED', message: error.message || 'Không đăng ký được khuôn mặt.' });
+  }
+};
+
+export const validateFaceRegistrationImage = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const data = validateFaceImageSchema.parse(req.body);
+    const analysis = await analyzeFaceImage(data.imageUrl);
+    const checks = buildFaceImageChecks(analysis);
+    const isValid = checks.every((check) => check.ok);
+
+    res.json({
+      success: true,
+      data: {
+        pose: data.pose,
+        isValid,
+        faceCount: analysis.faceCount,
+        quality: analysis.quality || null,
+        checks,
+        message: isValid ? 'Ảnh đạt điều kiện nhận diện.' : 'Ảnh chưa đạt, cần chụp lại.',
+      },
+    });
+  } catch (error: any) {
+    const status = error.statusCode || (error.code === 'FACE_RECOGNITION_NOT_CONFIGURED' ? 503 : 400);
+    res.status(status).json({
+      success: false,
+      code: error.code || 'FACE_VALIDATE_FAILED',
+      message: error.message || 'Không kiểm tra được ảnh khuôn mặt.',
+    });
   }
 };
 
