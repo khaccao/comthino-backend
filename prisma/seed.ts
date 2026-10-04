@@ -554,7 +554,7 @@ async function main() {
               permissionId: permission.id,
             },
           },
-          update: { isAllowed: true },
+          update: {},
           create: {
             roleId: role.id,
             menuId: menu.id,

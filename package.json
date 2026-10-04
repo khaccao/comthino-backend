@@ -10,7 +10,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
-    "prisma:seed": "ts-node --project tsconfig.seed.json prisma/seed.ts"
+    "prisma:seed": "ts-node --project tsconfig.seed.json prisma/seed.ts",
+    "prisma:seed:rbac": "node dist/scripts/seedRbac.js"
   },
   "prisma": {
     "seed": "ts-node --project tsconfig.seed.json prisma/seed.ts"
