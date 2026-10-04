@@ -291,7 +291,7 @@ router.get('/customers/:id', requirePermission('CUSTOMER_MANAGEMENT', 'VIEW'), g
 router.put('/customers/:id', requirePermission('CUSTOMER_MANAGEMENT', 'EDIT'), updateCustomer);
 
 // Face registration / face attendance
-router.get('/face-registration/bootstrap', requirePermission('FACE_REGISTRATION', 'VIEW'), requirePayrollOtp, getFaceRegistrationBootstrap);
+router.get('/face-registration/bootstrap', requirePermission('FACE_REGISTRATION', 'VIEW'), getFaceRegistrationBootstrap);
 router.post('/face-registration/validate-image', requirePermission('FACE_REGISTRATION', 'CREATE'), validateFaceRegistrationImage);
 router.post('/face-registration', requirePermission('FACE_REGISTRATION', 'CREATE'), registerEmployeeFace);
 router.post('/face-attendance/recognize', requirePermission('FACE_ATTENDANCE', 'CREATE'), recognizeFaceAttendance);
