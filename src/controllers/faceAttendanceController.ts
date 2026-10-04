@@ -69,6 +69,7 @@ const serializeEmployee = (item: any) => ({
 
 const buildFaceImageChecks = (analysis: Awaited<ReturnType<typeof analyzeFaceImage>>) => {
   const checks: Array<{ key: string; label: string; ok: boolean; message: string }> = [];
+  const isLocalProvider = String(analysis.embeddingVersion || '').startsWith('local-');
   checks.push({
     key: 'faceCount',
     label: 'Khuôn mặt',
@@ -83,36 +84,49 @@ const buildFaceImageChecks = (analysis: Awaited<ReturnType<typeof analyzeFaceIma
   const brightness = Number(analysis.quality?.brightness);
   if (Number.isFinite(brightness)) {
     const normalized = brightness > 1 ? brightness / 255 : brightness;
+    const minBrightness = isLocalProvider ? 0.12 : 0.22;
+    const maxBrightness = isLocalProvider ? 0.95 : 0.86;
     checks.push({
       key: 'brightness',
       label: 'Ánh sáng',
-      ok: normalized >= 0.22 && normalized <= 0.86,
-      message: normalized < 0.22
-        ? 'Ảnh hơi tối, cần ra chỗ sáng hơn.'
-        : normalized > 0.86
-          ? 'Ảnh quá sáng/chói, cần tránh đèn chiếu thẳng.'
-          : 'Ánh sáng đạt.',
+      ok: normalized >= minBrightness && normalized <= maxBrightness,
+      message: normalized < minBrightness
+        ? `Ảnh hơi tối (${Math.round(normalized * 100)}%), cần ra chỗ sáng hơn.`
+        : normalized > maxBrightness
+          ? `Ảnh hơi sáng (${Math.round(normalized * 100)}%), tránh đèn chiếu thẳng vào mặt.`
+          : `Ánh sáng đạt (${Math.round(normalized * 100)}%).`,
     });
   }
 
   const blur = Number(analysis.quality?.blur);
   if (Number.isFinite(blur)) {
+    const maxBlur = isLocalProvider ? 0.82 : 0.42;
     checks.push({
       key: 'blur',
       label: 'Độ nét',
-      ok: blur <= 0.42,
-      message: blur <= 0.42 ? 'Ảnh đủ nét.' : 'Ảnh hơi mờ, giữ máy chắc và chụp lại.',
+      ok: blur <= maxBlur,
+      message: blur <= maxBlur ? `Ảnh đủ nét (${Math.round(blur * 100)}%).` : `Ảnh hơi mờ (${Math.round(blur * 100)}%), giữ máy chắc và chụp lại.`,
     });
   }
 
   const faceSize = Number(analysis.quality?.faceSize);
   if (Number.isFinite(faceSize)) {
     const normalized = faceSize > 1 ? faceSize / 100 : faceSize;
+    const minFaceSize = isLocalProvider ? 0.12 : 0.18;
     checks.push({
       key: 'faceSize',
       label: 'Kích thước mặt',
-      ok: normalized >= 0.18,
-      message: normalized >= 0.18 ? 'Mặt đủ lớn trong khung.' : 'Mặt hơi nhỏ, đưa điện thoại gần hơn.',
+      ok: normalized >= minFaceSize,
+      message: normalized >= minFaceSize ? 'Mặt đủ lớn trong khung.' : 'Mặt hơi nhỏ, đưa điện thoại gần hơn.',
+    });
+  }
+
+  if (isLocalProvider) {
+    checks.push({
+      key: 'provider',
+      label: 'Bộ nhận diện',
+      ok: true,
+      message: 'Đang dùng bộ kiểm tra nội bộ, đã nới ngưỡng phù hợp camera điện thoại.',
     });
   }
 
@@ -363,6 +377,7 @@ export const validateFaceRegistrationImage = async (req: AuthenticatedRequest, r
     const analysis = await analyzeFaceImage(data.imageUrl);
     const checks = buildFaceImageChecks(analysis);
     const isValid = checks.every((check) => check.ok);
+    const failedChecks = checks.filter((check) => !check.ok);
 
     res.json({
       success: true,
@@ -372,7 +387,9 @@ export const validateFaceRegistrationImage = async (req: AuthenticatedRequest, r
         faceCount: analysis.faceCount,
         quality: analysis.quality || null,
         checks,
-        message: isValid ? 'Ảnh đạt điều kiện nhận diện.' : 'Ảnh chưa đạt, cần chụp lại.',
+        message: isValid
+          ? 'Ảnh đạt điều kiện nhận diện.'
+          : `Ảnh chưa đạt vì ${failedChecks.map((check) => check.label.toLowerCase()).join(', ')}. Xem chi tiết từng dòng kiểm tra bên dưới.`,
       },
     });
   } catch (error: any) {
