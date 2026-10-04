@@ -26,6 +26,7 @@ const registerSchema = z.object({
 const validateFaceImageSchema = z.object({
   pose: z.enum(poseValues),
   imageUrl: z.string().url(),
+  employeeId: z.string().min(1).optional().nullable(),
 });
 
 const recognizeSchema = z.object({
@@ -220,17 +221,29 @@ const faceEmployeeInclude = {
   },
 };
 
-const findCurrentLinkedEmployee = (userId?: string) => {
-  if (!userId) return null;
+const findCurrentLinkedEmployee = (user?: AuthenticatedRequest['user']) => {
+  const userId = String(user?.id || '').trim();
+  const email = String(user?.email || '').trim();
+  const orConditions: any[] = [];
+  if (userId) orConditions.push({ linkedUserId: userId });
+  if (email) {
+    // Email fallback keeps face registration working when a mobile session still
+    // carries an old user id after the account was recreated, while Payroll
+    // already shows the employee linked to the current email.
+    orConditions.push({ linkedUser: { is: { email } } });
+    orConditions.push({ linkedUserId: email });
+  }
+
+  if (!orConditions.length) return null;
   return prisma.payrollEmployee.findFirst({
-    where: { linkedUserId: userId, isActive: true },
+    where: { isActive: true, OR: orConditions },
     include: faceEmployeeInclude,
   });
 };
 
 const resolveFaceRegistrationEmployee = async (req: AuthenticatedRequest, requestedEmployeeId?: string | null) => {
   const canManage = canRegisterFaceForOthers(req.user);
-  const currentEmployee = await findCurrentLinkedEmployee(req.user?.id);
+  const currentEmployee = await findCurrentLinkedEmployee(req.user);
 
   if (!requestedEmployeeId) {
     if (currentEmployee) return currentEmployee;
@@ -263,7 +276,7 @@ const resolveFaceRegistrationEmployee = async (req: AuthenticatedRequest, reques
 export const getFaceRegistrationBootstrap = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const canManage = canRegisterFaceForOthers(req.user);
-    const currentEmployee = await findCurrentLinkedEmployee(req.user?.id);
+    const currentEmployee = await findCurrentLinkedEmployee(req.user);
     const employees = canManage
       ? await prisma.payrollEmployee.findMany({
         where: { isActive: true },
@@ -344,6 +357,9 @@ export const registerEmployeeFace = async (req: AuthenticatedRequest, res: Respo
 export const validateFaceRegistrationImage = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const data = validateFaceImageSchema.parse(req.body);
+    if (!canRegisterFaceForOthers(req.user) || data.employeeId) {
+      await resolveFaceRegistrationEmployee(req, data.employeeId);
+    }
     const analysis = await analyzeFaceImage(data.imageUrl);
     const checks = buildFaceImageChecks(analysis);
     const isValid = checks.every((check) => check.ok);
