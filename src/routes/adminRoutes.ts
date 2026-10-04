@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticateJWT, requireAdmin, requirePayrollOtp, requirePermission, requireRevenueOtp } from '../middlewares/auth';
+import { authenticateJWT, requireAdmin, requireAnyPermission, requirePayrollOtp, requirePermission, requireRevenueOtp } from '../middlewares/auth';
 import { upload } from '../middlewares/upload';
 import {
   getDashboard,
@@ -262,7 +262,10 @@ router.use(authenticateJWT);
 router.get('/dashboard', requirePermission('DASHBOARD', 'VIEW'), requireRevenueOtp, getDashboard);
 
 // Shared ImageKit upload auth for face attendance photos
-router.get('/imagekit/auth', requirePermission('FACE_ATTENDANCE', 'CREATE'), getImageKitAuth);
+router.get('/imagekit/auth', requireAnyPermission([
+  { menuCode: 'FACE_REGISTRATION', permissionCode: 'CREATE' },
+  { menuCode: 'FACE_ATTENDANCE', permissionCode: 'CREATE' },
+]), getImageKitAuth);
 
 // Branch / chain management
 router.get('/branches', requirePermission('BRANCH_MANAGEMENT', 'VIEW'), getBranches);
@@ -287,12 +290,12 @@ router.get('/customers/:id', requirePermission('CUSTOMER_MANAGEMENT', 'VIEW'), g
 router.put('/customers/:id', requirePermission('CUSTOMER_MANAGEMENT', 'EDIT'), updateCustomer);
 
 // Face registration / face attendance
-router.get('/face-registration/bootstrap', requirePermission('FACE_ATTENDANCE', 'VIEW'), requirePayrollOtp, getFaceRegistrationBootstrap);
-router.post('/face-registration', requirePermission('FACE_ATTENDANCE', 'CREATE'), registerEmployeeFace);
+router.get('/face-registration/bootstrap', requirePermission('FACE_REGISTRATION', 'VIEW'), requirePayrollOtp, getFaceRegistrationBootstrap);
+router.post('/face-registration', requirePermission('FACE_REGISTRATION', 'CREATE'), registerEmployeeFace);
 router.post('/face-attendance/recognize', requirePermission('FACE_ATTENDANCE', 'CREATE'), recognizeFaceAttendance);
-router.get('/face-recognition/config', requirePermission('FACE_ATTENDANCE', 'VIEW'), getFaceRecognitionConfig);
-router.put('/face-recognition/config', requirePermission('FACE_ATTENDANCE', 'EDIT'), updateFaceRecognitionConfig);
-router.post('/face-recognition/health', requirePermission('FACE_ATTENDANCE', 'VIEW'), healthCheckFaceRecognition);
+router.get('/face-recognition/config', requirePermission('FACE_RECOGNITION_CONFIG', 'VIEW'), getFaceRecognitionConfig);
+router.put('/face-recognition/config', requirePermission('FACE_RECOGNITION_CONFIG', 'EDIT'), updateFaceRecognitionConfig);
+router.post('/face-recognition/health', requirePermission('FACE_RECOGNITION_CONFIG', 'VIEW'), healthCheckFaceRecognition);
 
 // HRM operations: weekly scheduling, attendance rules and approval workflow
 router.get('/hrm/bootstrap', requirePermission('PAYROLL', 'VIEW'), requirePayrollOtp, getHrmBootstrap);

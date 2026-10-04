@@ -91,6 +91,55 @@ export const requirePermission = (menuCode: string, permissionCode: string) => {
   };
 };
 
+export const requireAnyPermission = (pairs: { menuCode: string; permissionCode: string }[]) => {
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({ message: 'ChÆ°a Ä‘Äƒng nháº­p.' });
+    }
+
+    if (req.user.isSystemAdmin || req.user.role === 'SUPERADMIN' || req.user.roles?.includes('SUPERADMIN')) {
+      return next();
+    }
+
+    try {
+      const userRoles = await prisma.userRole.findMany({
+        where: { userId: req.user.id },
+        include: { role: true },
+      });
+
+      const roleIds = userRoles.map(ur => ur.roleId);
+      const roleCodes = userRoles.map(ur => ur.role.code);
+
+      if (roleCodes.includes('SUPERADMIN')) {
+        return next();
+      }
+
+      const allowed = await prisma.rolePermission.findFirst({
+        where: {
+          roleId: { in: roleIds },
+          isAllowed: true,
+          OR: pairs.map(pair => ({
+            menu: { code: pair.menuCode },
+            permission: { code: pair.permissionCode },
+          })),
+        },
+      });
+
+      if (allowed) {
+        return next();
+      }
+
+      const labels = pairs.map(pair => `${pair.menuCode}:${pair.permissionCode}`).join(', ');
+      return res.status(403).json({
+        message: `Báº¡n khĂ´ng cĂ³ quyá»n thá»±c hiá»‡n hĂ nh Ä‘á»™ng nĂ y (${labels}).`
+      });
+    } catch (error) {
+      console.error('Error checking permission:', error);
+      return res.status(500).json({ message: 'Lá»—i kiá»ƒm tra quyá»n háº¡n.' });
+    }
+  };
+};
+
 const requireSensitiveOtp =
   (twoFactorMessage: string, invalidCode: string) =>
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {

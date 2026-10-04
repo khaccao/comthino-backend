@@ -499,11 +499,13 @@ async function main() {
 
   const extraMenus = [
     { code: 'BRANCH_MANAGEMENT', name: 'Quản lý chi nhánh', path: '/admin/system/branches', icon: 'Store', sortOrder: 41 },
-    { code: 'FACE_ATTENDANCE', name: 'Khuôn mặt & chấm công', path: '/admin/face-registration', icon: 'ScanFace', sortOrder: 42 },
+    { code: 'FACE_REGISTRATION', name: 'Đăng ký khuôn mặt', path: '/admin/face-registration', icon: 'ScanFace', sortOrder: 42 },
+    { code: 'FACE_ATTENDANCE', name: 'Chấm công khuôn mặt', path: '/admin/face-attendance', icon: 'ScanFace', sortOrder: 43 },
+    { code: 'FACE_RECOGNITION_CONFIG', name: 'Cấu hình Face AI', path: '/admin/face-recognition', icon: 'BrainCircuit', sortOrder: 44 },
   ];
 
-  extraMenus.push({ code: 'CAO_RESTAURANT_DATA', name: 'Dữ liệu nhà hàng CAO', path: '/admin/cao-restaurant', icon: 'Database', sortOrder: 43 });
-  extraMenus.push({ code: 'WEBSITE_BUILDER', name: 'Website Builder', path: '/admin/website-builder', icon: 'PanelTop', sortOrder: 44 });
+  extraMenus.push({ code: 'CAO_RESTAURANT_DATA', name: 'Dữ liệu nhà hàng CAO', path: '/admin/cao-restaurant', icon: 'Database', sortOrder: 45 });
+  extraMenus.push({ code: 'WEBSITE_BUILDER', name: 'Website Builder', path: '/admin/website-builder', icon: 'PanelTop', sortOrder: 46 });
 
   for (const m of extraMenus) {
     await prisma.menu.upsert({
@@ -579,13 +581,15 @@ async function main() {
     ORDER_POS: view,
     POS_RUNNER: view,
     KITCHEN_INVENTORY: ['VIEW', 'CREATE'],
-    FACE_ATTENDANCE: ['CREATE'],
+    FACE_REGISTRATION: entry,
+    FACE_ATTENDANCE: entry,
   });
 
   await grantRolePermissions('STAFF', {
     DASHBOARD: view,
     POS_RUNNER: view,
-    FACE_ATTENDANCE: ['CREATE'],
+    FACE_REGISTRATION: entry,
+    FACE_ATTENDANCE: entry,
     PAYMENT_REQUEST: entry,
     SUPPLIER_CATEGORY: view,
   });
@@ -596,7 +600,8 @@ async function main() {
     POS_RUNNER: view,
     KITCHEN_INVENTORY: ['VIEW', 'CREATE'],
     CUSTOMER_MANAGEMENT: ['VIEW', 'CREATE', 'EDIT'],
-    FACE_ATTENDANCE: ['CREATE'],
+    FACE_REGISTRATION: entry,
+    FACE_ATTENDANCE: entry,
     PAYMENT_REQUEST: entry,
     SUPPLIER_CATEGORY: view,
   });
@@ -620,7 +625,9 @@ async function main() {
     SUPPLIER_CATEGORY: maintain,
     SUPPLIER_DEBT: maintain,
     PAYROLL: maintain,
+    FACE_REGISTRATION: maintain,
     FACE_ATTENDANCE: maintain,
+    FACE_RECOGNITION_CONFIG: ['VIEW', 'EDIT'],
     CAO_RESTAURANT_DATA: view,
     WEBSITE_BUILDER: ['VIEW', 'CREATE', 'EDIT', 'APPROVE', 'CANCEL', 'EXPORT'],
     BLOG_CATEGORY: content,
@@ -664,7 +671,9 @@ async function main() {
     SYSTEM_CONFIG: maintain,
     BRANCH_MANAGEMENT: maintain,
     CUSTOMER_MANAGEMENT: maintain,
+    FACE_REGISTRATION: maintain,
     FACE_ATTENDANCE: maintain,
+    FACE_RECOGNITION_CONFIG: ['VIEW', 'EDIT'],
     CAO_RESTAURANT_DATA: view,
     WEBSITE_BUILDER: ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'APPROVE', 'CANCEL', 'EXPORT'],
     SUPPLIER_CATEGORY: maintain,
