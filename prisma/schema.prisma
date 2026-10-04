@@ -32,6 +32,7 @@ model User {
   paymentRequests  PaymentRequest[] @relation("Requester")
   approvedRequests PaymentRequest[] @relation("Approver")
   createdVouchers  PaymentVoucher[] @relation("VoucherCreator")
+  payrollEmployee  PayrollEmployee? @relation("PayrollEmployeeUser")
 
   @@map("Users")
 }
@@ -973,6 +974,7 @@ model PayrollEmployee {
   position         String?
   avatarUrl        String?
   branchId         String?
+  linkedUserId     String?   @unique
   defaultShiftId   String?
   hourlyRate       Decimal?  @db.Decimal(18, 2)
   faceStatus       String    @default("NOT_REGISTERED")
@@ -983,6 +985,7 @@ model PayrollEmployee {
   updatedAt        DateTime  @updatedAt
 
   branch            Branch?                    @relation(fields: [branchId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  linkedUser        User?                      @relation("PayrollEmployeeUser", fields: [linkedUserId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   defaultShift      WorkShift?                 @relation(fields: [defaultShiftId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   attendances       AttendanceRecord[]
   payrollLines      PayrollLine[]

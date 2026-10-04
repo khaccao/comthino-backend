@@ -18,6 +18,7 @@ const employeeSchema = z.object({
   fullName: z.string().min(1),
   phone: z.string().optional().nullable(),
   position: z.string().optional().nullable(),
+  linkedUserId: z.string().optional().nullable(),
   defaultShiftId: z.string().optional().nullable(),
   hourlyRate: z.coerce.number().min(0).optional().nullable(),
   note: z.string().optional().nullable(),
@@ -143,10 +144,25 @@ const serializeShift = (item: any) => ({
   hourlyRate: money(item.hourlyRate),
 });
 
+const payrollEmployeeInclude = {
+  defaultShift: true,
+  linkedUser: {
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      phone: true,
+      role: true,
+      isActive: true,
+    },
+  },
+};
+
 const serializeEmployee = (item: any) => ({
   ...item,
   hourlyRate: item.hourlyRate === null || item.hourlyRate === undefined ? null : money(item.hourlyRate),
   defaultShift: item.defaultShift ? serializeShift(item.defaultShift) : item.defaultShift,
+  linkedUser: item.linkedUser || null,
 });
 
 const serializeAttendance = (item: any) => ({
@@ -208,13 +224,13 @@ const serializeRewardPenalty = (item: any) => ({
 
 const getRateForAttendance = async (employeeId: string, shiftId?: string | null, explicitRate?: number | null) => {
   if (explicitRate !== null && explicitRate !== undefined) return explicitRate;
-  const employee = await prisma.payrollEmployee.findUnique({ where: { id: employeeId }, include: { defaultShift: true } });
+  const employee = await prisma.payrollEmployee.findUnique({ where: { id: employeeId }, include: payrollEmployeeInclude });
   const shift = shiftId ? await prisma.workShift.findUnique({ where: { id: shiftId } }) : employee?.defaultShift;
   return money(employee?.hourlyRate ?? shift?.hourlyRate ?? 0);
 };
 
 const resolveAttendanceMasterData = async (employeeId: string, shiftId?: string | null) => {
-  const employee = await prisma.payrollEmployee.findUnique({ where: { id: employeeId }, include: { defaultShift: true } });
+  const employee = await prisma.payrollEmployee.findUnique({ where: { id: employeeId }, include: payrollEmployeeInclude });
   if (!employee) throw new Error('Không tìm thấy nhân viên chấm công.');
   const finalShiftId = shiftId || employee.defaultShiftId || null;
   const shift = finalShiftId ? await prisma.workShift.findUnique({ where: { id: finalShiftId } }) : employee.defaultShift;
@@ -251,26 +267,39 @@ export const getPayrollBootstrap = async (_req: AuthenticatedRequest, res: Respo
     const todayStart = parseDateOnly(vietnamDateKey());
     const todayEnd = parseDateOnly(vietnamDateKey(), true);
     const monthStartDate = parseDateOnly(vietnamDateKey().slice(0, 8) + '01');
-    const [shifts, employees, attendances, runs, kpiLevels, kpiRecords, adjustmentCategories, adjustments] = await Promise.all([
+    const [shifts, employees, users, attendances, runs, kpiLevels, kpiRecords, adjustmentCategories, adjustments] = await Promise.all([
       prisma.workShift.findMany({ orderBy: [{ isActive: 'desc' }, { name: 'asc' }] }),
-      prisma.payrollEmployee.findMany({ include: { defaultShift: true }, orderBy: [{ isActive: 'desc' }, { fullName: 'asc' }] }),
+      prisma.payrollEmployee.findMany({ include: payrollEmployeeInclude, orderBy: [{ isActive: 'desc' }, { fullName: 'asc' }] }),
+      prisma.user.findMany({
+        where: { isActive: true },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          phone: true,
+          role: true,
+          isActive: true,
+          payrollEmployee: { select: { id: true, code: true, fullName: true } },
+        },
+        orderBy: [{ fullName: 'asc' }, { email: 'asc' }],
+      }),
       prisma.attendanceRecord.findMany({
         where: { workDate: { gte: todayStart, lte: todayEnd } },
-        include: { employee: { include: { defaultShift: true } }, shift: true },
+        include: { employee: { include: payrollEmployeeInclude }, shift: true },
         orderBy: [{ workDate: 'desc' }, { clockIn: 'desc' }],
       }),
       prisma.payrollRun.findMany({ include: { lines: true }, orderBy: { createdAt: 'desc' }, take: 12 }),
       prisma.kpiLevel.findMany({ orderBy: [{ isActive: 'desc' }, { minScore: 'asc' }] }),
       prisma.employeeKpiRecord.findMany({
         where: { periodEnd: { gte: monthStartDate } },
-        include: { employee: { include: { defaultShift: true } }, level: true },
+        include: { employee: { include: payrollEmployeeInclude }, level: true },
         orderBy: [{ periodEnd: 'desc' }, { createdAt: 'desc' }],
         take: 80,
       }),
       prisma.rewardPenaltyCategory.findMany({ orderBy: [{ isActive: 'desc' }, { type: 'asc' }, { name: 'asc' }] }),
       prisma.employeeRewardPenalty.findMany({
         where: { incidentDate: { gte: monthStartDate } },
-        include: { employee: { include: { defaultShift: true } }, category: true },
+        include: { employee: { include: payrollEmployeeInclude }, category: true },
         orderBy: [{ incidentDate: 'desc' }, { createdAt: 'desc' }],
         take: 120,
       }),
@@ -280,6 +309,7 @@ export const getPayrollBootstrap = async (_req: AuthenticatedRequest, res: Respo
       data: {
         shifts: shifts.map(serializeShift),
         employees: employees.map(serializeEmployee),
+        users,
         attendances: attendances.map(serializeAttendance),
         runs: runs.map(serializeRun),
         kpiLevels: kpiLevels.map(serializeKpiLevel),
@@ -326,14 +356,17 @@ export const deleteWorkShift = async (req: AuthenticatedRequest, res: Response) 
 };
 
 export const getPayrollEmployees = async (_req: AuthenticatedRequest, res: Response) => {
-  const items = await prisma.payrollEmployee.findMany({ include: { defaultShift: true }, orderBy: [{ isActive: 'desc' }, { fullName: 'asc' }] });
+  const items = await prisma.payrollEmployee.findMany({ include: payrollEmployeeInclude, orderBy: [{ isActive: 'desc' }, { fullName: 'asc' }] });
   res.json({ success: true, items: items.map(serializeEmployee) });
 };
 
 export const createPayrollEmployee = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const data = employeeSchema.parse(req.body);
-    const item = await prisma.payrollEmployee.create({ data, include: { defaultShift: true } });
+    const item = await prisma.payrollEmployee.create({
+      data: { ...data, linkedUserId: data.linkedUserId || null },
+      include: payrollEmployeeInclude,
+    });
     res.status(201).json({ success: true, item: serializeEmployee(item) });
   } catch (error: any) {
     if (error instanceof z.ZodError) return res.status(400).json({ message: error.errors[0].message });
@@ -344,7 +377,11 @@ export const createPayrollEmployee = async (req: AuthenticatedRequest, res: Resp
 export const updatePayrollEmployee = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const data = employeeSchema.partial().parse(req.body);
-    const item = await prisma.payrollEmployee.update({ where: { id: req.params.id }, data, include: { defaultShift: true } });
+    const item = await prisma.payrollEmployee.update({
+      where: { id: req.params.id },
+      data: { ...data, linkedUserId: data.linkedUserId === undefined ? undefined : data.linkedUserId || null },
+      include: payrollEmployeeInclude,
+    });
     res.json({ success: true, item: serializeEmployee(item) });
   } catch (error: any) {
     if (error instanceof z.ZodError) return res.status(400).json({ message: error.errors[0].message });
@@ -363,7 +400,7 @@ export const getAttendances = async (req: AuthenticatedRequest, res: Response) =
   const to = parseDateOnly(String(req.query.to || req.query.from || defaultDate), true);
   const items = await prisma.attendanceRecord.findMany({
     where: { workDate: { gte: from, lte: to } },
-    include: { employee: { include: { defaultShift: true } }, shift: true },
+    include: { employee: { include: payrollEmployeeInclude }, shift: true },
     orderBy: [{ workDate: 'desc' }, { clockIn: 'desc' }],
   });
   res.json({ success: true, items: items.map(serializeAttendance) });
@@ -394,7 +431,7 @@ export const createAttendance = async (req: AuthenticatedRequest, res: Response)
         note: data.note || null,
         status: data.status || 'RECORDED',
       },
-      include: { employee: { include: { defaultShift: true } }, shift: true },
+      include: { employee: { include: payrollEmployeeInclude }, shift: true },
     });
     res.status(201).json({ success: true, item: serializeAttendance(item) });
   } catch (error: any) {
@@ -438,7 +475,7 @@ export const updateAttendance = async (req: AuthenticatedRequest, res: Response)
         note: data.note !== undefined ? data.note : current.note,
         status: data.status || current.status,
       },
-      include: { employee: { include: { defaultShift: true } }, shift: true },
+      include: { employee: { include: payrollEmployeeInclude }, shift: true },
     });
     res.json({ success: true, item: serializeAttendance(item) });
   } catch (error: any) {
@@ -490,7 +527,7 @@ export const getKpiRecords = async (req: AuthenticatedRequest, res: Response) =>
   const to = parseDateOnly(String(req.query.to || defaultDate), true);
   const items = await prisma.employeeKpiRecord.findMany({
     where: { periodEnd: { gte: from }, periodStart: { lte: to } },
-    include: { employee: { include: { defaultShift: true } }, level: true },
+    include: { employee: { include: payrollEmployeeInclude }, level: true },
     orderBy: [{ periodEnd: 'desc' }, { createdAt: 'desc' }],
   });
   res.json({ success: true, items: items.map(serializeKpiRecord) });
@@ -512,7 +549,7 @@ export const createKpiRecord = async (req: AuthenticatedRequest, res: Response) 
         status: data.status || 'APPROVED',
         createdBy: req.user?.email,
       },
-      include: { employee: { include: { defaultShift: true } }, level: true },
+      include: { employee: { include: payrollEmployeeInclude }, level: true },
     });
     res.status(201).json({ success: true, item: serializeKpiRecord(item) });
   } catch (error: any) {
@@ -546,7 +583,7 @@ export const updateKpiRecord = async (req: AuthenticatedRequest, res: Response) 
         note: data.note !== undefined ? data.note : current.note,
         status: data.status || current.status,
       },
-      include: { employee: { include: { defaultShift: true } }, level: true },
+      include: { employee: { include: payrollEmployeeInclude }, level: true },
     });
     res.json({ success: true, item: serializeKpiRecord(item) });
   } catch (error: any) {
@@ -598,7 +635,7 @@ export const getRewardPenalties = async (req: AuthenticatedRequest, res: Respons
   const to = parseDateOnly(String(req.query.to || defaultDate), true);
   const items = await prisma.employeeRewardPenalty.findMany({
     where: { incidentDate: { gte: from, lte: to } },
-    include: { employee: { include: { defaultShift: true } }, category: true },
+    include: { employee: { include: payrollEmployeeInclude }, category: true },
     orderBy: [{ incidentDate: 'desc' }, { createdAt: 'desc' }],
   });
   res.json({ success: true, items: items.map(serializeRewardPenalty) });
@@ -621,7 +658,7 @@ export const createRewardPenalty = async (req: AuthenticatedRequest, res: Respon
         note: data.note || null,
         createdBy: req.user?.email,
       },
-      include: { employee: { include: { defaultShift: true } }, category: true },
+      include: { employee: { include: payrollEmployeeInclude }, category: true },
     });
     res.status(201).json({ success: true, item: serializeRewardPenalty(item) });
   } catch (error: any) {
@@ -650,7 +687,7 @@ export const updateRewardPenalty = async (req: AuthenticatedRequest, res: Respon
         appliedAt: nextStatus === 'APPLIED' && !current.appliedAt ? new Date() : current.appliedAt,
         note: data.note !== undefined ? data.note : current.note,
       },
-      include: { employee: { include: { defaultShift: true } }, category: true },
+      include: { employee: { include: payrollEmployeeInclude }, category: true },
     });
     res.json({ success: true, item: serializeRewardPenalty(item) });
   } catch (error: any) {
@@ -834,3 +871,4 @@ export const deletePayrollRun = async (req: AuthenticatedRequest, res: Response)
   await prisma.payrollRun.delete({ where: { id: req.params.id } });
   res.json({ success: true, message: 'Đã xóa bảng lương.' });
 };
+
