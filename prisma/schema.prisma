@@ -32,7 +32,7 @@ model User {
   paymentRequests  PaymentRequest[] @relation("Requester")
   approvedRequests PaymentRequest[] @relation("Approver")
   createdVouchers  PaymentVoucher[] @relation("VoucherCreator")
-  payrollEmployee  PayrollEmployee? @relation("PayrollEmployeeUser")
+  payrollEmployees PayrollEmployee[] @relation("PayrollEmployeeUser")
 
   @@map("Users")
 }
@@ -974,7 +974,7 @@ model PayrollEmployee {
   position         String?
   avatarUrl        String?
   branchId         String?
-  linkedUserId     String?   @unique
+  linkedUserId     String?
   defaultShiftId   String?
   hourlyRate       Decimal?  @db.Decimal(18, 2)
   faceStatus       String    @default("NOT_REGISTERED")

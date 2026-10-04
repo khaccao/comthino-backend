@@ -229,6 +229,31 @@ const getRateForAttendance = async (employeeId: string, shiftId?: string | null,
   return money(employee?.hourlyRate ?? shift?.hourlyRate ?? 0);
 };
 
+const assertLinkedUserAvailable = async (linkedUserId?: string | null, employeeId?: string) => {
+  if (!linkedUserId) return;
+
+  const user = await prisma.user.findUnique({ where: { id: linkedUserId }, select: { id: true, isActive: true } });
+  if (!user || !user.isActive) {
+    const error: any = new Error('Tài khoản đăng nhập không hợp lệ hoặc đã bị khóa.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const existing = await prisma.payrollEmployee.findFirst({
+    where: {
+      linkedUserId,
+      ...(employeeId ? { id: { not: employeeId } } : {}),
+    },
+    select: { id: true, code: true, fullName: true },
+  });
+
+  if (existing) {
+    const error: any = new Error(`Tài khoản này đã được gán cho nhân viên ${existing.fullName}.`);
+    error.statusCode = 409;
+    throw error;
+  }
+};
+
 const resolveAttendanceMasterData = async (employeeId: string, shiftId?: string | null) => {
   const employee = await prisma.payrollEmployee.findUnique({ where: { id: employeeId }, include: payrollEmployeeInclude });
   if (!employee) throw new Error('Không tìm thấy nhân viên chấm công.');
@@ -279,7 +304,7 @@ export const getPayrollBootstrap = async (_req: AuthenticatedRequest, res: Respo
           phone: true,
           role: true,
           isActive: true,
-          payrollEmployee: { select: { id: true, code: true, fullName: true } },
+          payrollEmployees: { select: { id: true, code: true, fullName: true }, take: 1 },
         },
         orderBy: [{ fullName: 'asc' }, { email: 'asc' }],
       }),
@@ -309,7 +334,10 @@ export const getPayrollBootstrap = async (_req: AuthenticatedRequest, res: Respo
       data: {
         shifts: shifts.map(serializeShift),
         employees: employees.map(serializeEmployee),
-        users,
+        users: users.map(({ payrollEmployees, ...user }: any) => ({
+          ...user,
+          payrollEmployee: payrollEmployees?.[0] || null,
+        })),
         attendances: attendances.map(serializeAttendance),
         runs: runs.map(serializeRun),
         kpiLevels: kpiLevels.map(serializeKpiLevel),
@@ -363,6 +391,7 @@ export const getPayrollEmployees = async (_req: AuthenticatedRequest, res: Respo
 export const createPayrollEmployee = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const data = employeeSchema.parse(req.body);
+    await assertLinkedUserAvailable(data.linkedUserId);
     const item = await prisma.payrollEmployee.create({
       data: { ...data, linkedUserId: data.linkedUserId || null },
       include: payrollEmployeeInclude,
@@ -370,6 +399,7 @@ export const createPayrollEmployee = async (req: AuthenticatedRequest, res: Resp
     res.status(201).json({ success: true, item: serializeEmployee(item) });
   } catch (error: any) {
     if (error instanceof z.ZodError) return res.status(400).json({ message: error.errors[0].message });
+    if (error?.statusCode) return res.status(error.statusCode).json({ message: error.message });
     res.status(500).json({ message: error?.code === 'P2002' ? 'Mã nhân viên đã tồn tại.' : 'Không tạo được nhân viên.' });
   }
 };
@@ -377,6 +407,7 @@ export const createPayrollEmployee = async (req: AuthenticatedRequest, res: Resp
 export const updatePayrollEmployee = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const data = employeeSchema.partial().parse(req.body);
+    await assertLinkedUserAvailable(data.linkedUserId, req.params.id);
     const item = await prisma.payrollEmployee.update({
       where: { id: req.params.id },
       data: { ...data, linkedUserId: data.linkedUserId === undefined ? undefined : data.linkedUserId || null },
@@ -385,6 +416,7 @@ export const updatePayrollEmployee = async (req: AuthenticatedRequest, res: Resp
     res.json({ success: true, item: serializeEmployee(item) });
   } catch (error: any) {
     if (error instanceof z.ZodError) return res.status(400).json({ message: error.errors[0].message });
+    if (error?.statusCode) return res.status(error.statusCode).json({ message: error.message });
     res.status(500).json({ message: 'Không cập nhật được nhân viên.' });
   }
 };
